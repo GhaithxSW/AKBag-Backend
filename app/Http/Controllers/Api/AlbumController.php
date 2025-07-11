@@ -68,4 +68,10 @@ class AlbumController extends Controller
         $album->delete();
         return response()->json(null, 204);
     }
+
+    public function images($albumId)
+    {
+        $album = Album::with('images')->findOrFail($albumId);
+        return \App\Http\Resources\ImageResource::collection($album->images);
+    }
 }

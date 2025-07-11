@@ -59,4 +59,17 @@ class CollectionController extends Controller
         $collection->delete();
         return response()->json(null, 204);
     }
+
+    public function albums($id)
+    {
+        $collection = Collection::with('albums')->findOrFail($id);
+        return AlbumResource::collection($collection->albums);
+    }
+
+    public function albumInCollection($collectionId, $albumId)
+    {
+        $collection = Collection::findOrFail($collectionId);
+        $album = $collection->albums()->with('images')->findOrFail($albumId);
+        return new AlbumResource($album);
+    }
 }
