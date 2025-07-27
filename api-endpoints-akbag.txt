@@ -1,0 +1,172 @@
+AKBag Backend API Endpoints for Frontend Integration
+===============================================
+
+Base API URL:
+https://akbag.elev8xr.com/api
+
+---
+
+Collections
+-----------
+1. Get all collections
+GET /collections
+Response:
+[
+  {
+    "id": 1,
+    "name": "Classic Collection",
+    "description": "Timeless designs for the modern professional",
+    "slug": "classic-collection"
+    // ...other fields
+  },
+  ...
+]
+
+2. Get a single collection with nested albums
+GET /collections/{id}
+Response:
+{
+  "id": 1,
+  "name": "Classic Collection",
+  "description": "Timeless designs for the modern professional",
+  "slug": "classic-collection",
+  "albums": [
+    {
+      "id": 1,
+      "title": "Executive Series",
+      "description": "...",
+      "slug": "executive-series",
+      "collection_id": 1
+      // ...other fields
+    },
+    ...
+  ]
+}
+
+3. Get all albums for a collection
+GET /collections/{id}/albums
+Response:
+[
+  {
+    "id": 1,
+    "title": "Executive Series",
+    "description": "...",
+    "slug": "executive-series",
+    "collection_id": 1
+    // ...other fields
+  },
+  ...
+]
+
+4. Get a specific album within a collection (with images)
+GET /collections/{collectionId}/albums/{albumId}
+Response:
+{
+  "id": 1,
+  "title": "Executive Series",
+  "description": "...",
+  "slug": "executive-series",
+  "collection_id": 1,
+  "images": [
+    {
+      "id": 1,
+      "title": "Executive Briefcase - Black",
+      "image_path": "images/filename.jpg",
+      "album_id": 1
+      // ...other fields
+    },
+    ...
+  ]
+}
+
+---
+
+Albums
+------
+5. Get all albums (with images)
+GET /albums
+Response:
+[
+  {
+    "id": 1,
+    "title": "Executive Series",
+    "description": "...",
+    "slug": "executive-series",
+    "collection_id": 1,
+    "images": [
+      {
+        "id": 1,
+        "title": "Executive Briefcase - Black",
+        "image_path": "images/filename.jpg",
+        "album_id": 1
+        // ...other fields
+      },
+      ...
+    ]
+  },
+  ...
+]
+
+6. Get a single album (with images)
+GET /albums/{id}
+Response: (same as above, but for a single album)
+
+7. Get all images for a specific album
+GET /albums/{albumId}/images
+Response:
+[
+  {
+    "id": 1,
+    "title": "Executive Briefcase - Black",
+    "image_path": "images/filename.jpg",
+    "album_id": 1
+    // ...other fields
+  },
+  ...
+]
+
+---
+
+Images
+------
+8. Get all images
+GET /images
+Response:
+[
+  {
+    "id": 1,
+    "title": "Executive Briefcase - Black",
+    "image_path": "images/filename.jpg",
+    "album_id": 1
+    // ...other fields
+  },
+  ...
+]
+
+9. Get a single image
+GET /images/{id}
+Response:
+{
+  "id": 1,
+  "title": "Executive Briefcase - Black",
+  "image_path": "images/filename.jpg",
+  "album_id": 1
+  // ...other fields
+}
+
+---
+
+Image URLs
+----------
+- The `image_path` field gives the relative path.
+- The full image URL is:
+  https://akbag.elev8xr.com/storage/{image_path}
+  Example: https://akbag.elev8xr.com/storage/images/filename.jpg
+
+---
+
+Notes for Frontend
+------------------
+- If any endpoint is missing or returns an error, skip that feature for now and show a placeholder.
+- No authentication is required for these endpoints.
+- Use the `image_path` field to construct image URLs as shown above.
