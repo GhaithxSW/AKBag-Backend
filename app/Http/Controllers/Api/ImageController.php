@@ -25,14 +25,24 @@ class ImageController extends Controller
         if (!$request->user() || !$request->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
+        
         $data = $request->validate([
             'album_id' => 'required|exists:albums,id',
             'title' => 'required|string|max:255',
-            'category' => 'nullable|string',
+            'category_id' => 'nullable|exists:categories,id',
             'image_path' => 'required|image',
+            'description' => 'nullable|string',
         ]);
-        $data['image_path'] = $request->file('image_path')->store('images', 'public');
+
+        if ($request->hasFile('image_path')) {
+            $data['image_path'] = $request->file('image_path')->store('images', 'public');
+        }
+        
         $image = Image::create($data);
+        
+        // Load the relationship for the response
+        $image->load('category');
+        
         return new ImageResource($image);
     }
 
@@ -41,17 +51,30 @@ class ImageController extends Controller
         if (!$request->user() || !$request->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
+        
         $image = Image::findOrFail($id);
+        
         $data = $request->validate([
             'album_id' => 'sometimes|required|exists:albums,id',
             'title' => 'sometimes|required|string|max:255',
-            'category' => 'nullable|string',
+            'category_id' => 'nullable|exists:categories,id',
             'image_path' => 'nullable|image',
+            'description' => 'nullable|string',
         ]);
+        
         if ($request->hasFile('image_path')) {
+            // Delete old image if exists
+            if ($image->image_path) {
+                \Storage::disk('public')->delete($image->image_path);
+            }
             $data['image_path'] = $request->file('image_path')->store('images', 'public');
         }
+        
         $image->update($data);
+        
+        // Refresh the relationship for the response
+        $image->load('category');
+        
         return new ImageResource($image);
     }
 

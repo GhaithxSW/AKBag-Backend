@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Album extends Model
 {
     protected $fillable = [
-        'collection_id', 'title', 'description', 'cover_image', 'slug',
+        'collection_id', 'title', 'description', 'cover_image',
     ];
 
     public function collection()

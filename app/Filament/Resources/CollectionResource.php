@@ -28,8 +28,7 @@ class CollectionResource extends Resource
                     ->required(),
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
-                Forms\Components\TextInput::make('slug')
-                    ->required(),
+                // Slug field removed as per requirements
             ]);
     }
 
@@ -39,8 +38,7 @@ class CollectionResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('slug')
-                    ->searchable(),
+                // Slug column removed as per requirements
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()

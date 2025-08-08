@@ -32,9 +32,7 @@ class AlbumResource extends Resource
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
                 Forms\Components\FileUpload::make('cover_image')
-                    ->image(),
-                Forms\Components\TextInput::make('slug')
-                    ->required(),
+                    ->image()
             ]);
     }
 
@@ -46,9 +44,6 @@ class AlbumResource extends Resource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('title')
-                    ->searchable(),
-                Tables\Columns\ImageColumn::make('cover_image'),
-                Tables\Columns\TextColumn::make('slug')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()

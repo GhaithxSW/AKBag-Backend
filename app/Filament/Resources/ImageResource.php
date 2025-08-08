@@ -17,7 +17,11 @@ class ImageResource extends Resource
 {
     protected static ?string $model = Image::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-photo';
+    
+    protected static ?string $navigationGroup = 'Content';
+    
+    protected static ?string $modelLabel = 'Image';
 
     public static function form(Form $form): Form
     {
@@ -30,11 +34,13 @@ class ImageResource extends Resource
                     ->label('Album')
                     ->relationship('album', 'title')
                     ->required(),
+
                 Forms\Components\FileUpload::make('image_path')
                     ->label('Image')
                     ->image()
                     ->directory('images')
-                    ->required(),
+                    ->required()
+                    ->columnSpanFull(),
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
             ]);
@@ -44,14 +50,22 @@ class ImageResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('file_path')
+                Tables\Columns\ImageColumn::make('image_path')
                     ->label('Thumbnail')
-                    ->disk('public'),
+                    ->disk('public')
+                    ->square()
+                    ->size(50),
                 Tables\Columns\TextColumn::make('title')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('album.title')
+                    ->searchable()
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 //

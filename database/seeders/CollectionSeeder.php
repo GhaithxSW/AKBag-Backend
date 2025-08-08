@@ -11,18 +11,15 @@ class CollectionSeeder extends Seeder
     {
         Collection::create([
             'name' => 'Nature',
-            'description' => 'Beautiful landscapes and nature scenes.',
-            'slug' => 'nature',
+            'description' => 'Beautiful landscapes and nature scenes.'
         ]);
         Collection::create([
             'name' => 'Urban',
-            'description' => 'City life and architecture.',
-            'slug' => 'urban',
+            'description' => 'City life and architecture.'
         ]);
         Collection::create([
             'name' => 'Abstract',
-            'description' => 'Abstract art and patterns.',
-            'slug' => 'abstract',
+            'description' => 'Abstract art and patterns.'
         ]);
     }
 }

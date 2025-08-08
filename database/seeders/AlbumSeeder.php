@@ -15,14 +15,12 @@ class AlbumSeeder extends Seeder
                 'title' => 'First Album for Collection ' . $collectionId,
                 'description' => 'Description for first album.',
                 'cover_image' => null,
-                'slug' => 'first-album-' . $collectionId,
             ]);
             Album::create([
                 'collection_id' => $collectionId,
                 'title' => 'Second Album for Collection ' . $collectionId,
                 'description' => 'Description for second album.',
                 'cover_image' => null,
-                'slug' => 'second-album-' . $collectionId,
             ]);
         }
     }
