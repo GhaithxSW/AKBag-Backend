@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\Album;
 use App\Models\Image;
-use App\Models\Category;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -145,7 +144,6 @@ class CheckVisibilityRestrictions extends Command
         // Check if models use SoftDeletes
         $this->checkModelSoftDeletes(Album::class);
         $this->checkModelSoftDeletes(Image::class);
-        $this->checkModelSoftDeletes(Category::class);
         
         // Check for any soft-deleted records
         $this->checkSoftDeletedRecords('albums', 'deleted_at');

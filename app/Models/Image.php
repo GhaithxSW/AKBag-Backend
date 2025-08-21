@@ -22,6 +22,7 @@ class Image extends Model
         'title',
         'image_path',
         'description',
+        'original_url',
     ];
 
     /**

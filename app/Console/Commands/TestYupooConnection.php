@@ -84,7 +84,7 @@ class TestYupooConnection extends Command
         }
         
         // Check if we can resolve the domain
-        $host = parse_url($testUrl, PHP_HOST);
+        $host = parse_url($testUrl, PHP_URL_HOST);
         $this->line("   Resolving DNS for: {$host}");
         
         try {

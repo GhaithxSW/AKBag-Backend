@@ -11,12 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('categories', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('slug')->unique();
-            $table->text('description')->nullable();
-            $table->timestamps();
+        Schema::table('images', function (Blueprint $table) {
+            $table->string('original_url')->nullable()->after('image_path');
         });
     }
 
@@ -25,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('categories');
+        Schema::table('images', function (Blueprint $table) {
+            $table->dropColumn('original_url');
+        });
     }
 };

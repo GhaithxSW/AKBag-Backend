@@ -17,6 +17,8 @@ class YupooService
     protected $config;
 
     protected $logger;
+    // Controls whether debug-level logs are emitted
+    protected $debug = false;
     
     public function __construct()
     {
@@ -73,6 +75,9 @@ class YupooService
         $this->albumModel = app(\App\Models\Album::class);
         $this->imageModel = app(\App\Models\Image::class);
         $this->collectionModel = app(\App\Models\Collection::class);
+
+        // Set debug verbosity from config, defaulting to app.debug
+        $this->debug = (bool) (config('yupoo.logging.debug', config('app.debug')));
     }
 
     public function fetchAlbums($baseUrl = null, $page = 1, $limit = null)
@@ -83,6 +88,53 @@ class YupooService
             'page' => $page,
             'limit' => $limit
         ]);
+        
+        // Log the full configuration being used
+        $this->log("Using configuration: " . json_encode([
+            'base_url' => $this->baseUrl,
+            'http' => [
+                'timeout' => $this->config['http']['timeout'] ?? 'default',
+                'verify' => $this->config['http']['verify'] ?? 'default',
+            ],
+            'import' => [
+                'max_albums' => $this->config['import']['max_albums'] ?? 'default',
+            ]
+        ], JSON_PRETTY_PRINT), 'debug');
+        
+        // Log the actual HTTP request being made
+        $requestUrl = $this->baseUrl . (strpos($this->baseUrl, '?') === false ? '?' : '&') . 'page=' . $page . ($limit ? '&limit=' . $limit : '');
+        $this->log("Making HTTP request to: " . $requestUrl, 'debug');
+        
+        $this->log("Sending HTTP GET request to: {$this->baseUrl}", 'debug', [
+            'page' => $page,
+            'limit' => $limit,
+            'headers' => $this->config['http']['headers'] ?? []
+        ]);
+        
+        $startTime = microtime(true);
+        $response = $this->httpClient->get($this->baseUrl, [
+            'page' => $page,
+            'limit' => $limit
+        ]);
+        $duration = round((microtime(true) - $startTime) * 1000, 2);
+        
+        $this->log("Received HTTP response in {$duration}ms", 'debug', [
+            'status' => $response->status(),
+            'headers' => $response->headers(),
+            'body_size' => strlen($response->body())
+        ]);
+        
+        // Log the full configuration being used
+        $this->log("Using configuration: " . json_encode([
+            'base_url' => $this->baseUrl,
+            'http' => [
+                'timeout' => $this->config['http']['timeout'] ?? 'default',
+                'verify' => $this->config['http']['verify'] ?? 'default',
+            ],
+            'import' => [
+                'max_albums' => $this->config['import']['max_albums'] ?? 'default',
+            ]
+        ], JSON_PRETTY_PRINT), 'debug');
         
         try {
             // Use provided base URL or fall back to config
@@ -609,50 +661,116 @@ class YupooService
                 } catch (\Exception $e) {
                     $this->log("Error getting page info: " . $e->getMessage(), 'error');
                 }
-                
-                throw new \Exception($errorMsg);
-            } else {
-                $this->log(sprintf("Successfully found %d albums", count($albums)));
             }
             
-            return $albums;
+            // Add found images to the results
+            $images = array_merge($images, $foundImages);
+            
+            // If still no images, try to extract from alternative JSON patterns
+            if (empty($images)) {
+                $this->log("No images found with standard selectors, trying alternative JSON patterns");
+                
+                // Look for various JSON patterns in the page
+                $jsonPatterns = [
+                    '/"photo_list"\s*:\s*(\[.*?\])/s',
+                    '/"photos"\s*:\s*(\[.*?\])/s',
+                    '/"items"\s*:\s*(\[.*?\])/s',
+                    '/"list"\s*:\s*(\[.*?\])/s'
+                ];
+                
+                foreach ($jsonPatterns as $pattern) {
+                    if (preg_match($pattern, $html, $matches)) {
+                        $this->log("Found potential JSON data with pattern: $pattern", 'debug');
+                        try {
+                            $jsonData = json_decode($matches[1], true);
+                            if (json_last_error() === JSON_ERROR_NONE && is_array($jsonData)) {
+                                $this->extractImagesFromJson($jsonData, $images);
+                                if (!empty($images)) {
+                                    $this->log("Successfully extracted " . count($images) . " images from JSON pattern: $pattern");
+                                    break;
+                                }
+                            }
+                        } catch (\Exception $e) {
+                            $this->log("Error processing JSON data: " . $e->getMessage(), 'warning');
+                        }
+                    }
+                }
+            }
+            
+            if (empty($images)) {
+                $this->log("No images found in the album", 'warning');
+            } else {
+                $this->log(sprintf("Found %d images in the album", count($images)));
+            }
+            
+            return $images;
             
         } catch (\Exception $e) {
-            $this->log("Error fetching albums: " . $e->getMessage(), 'error');
-            
-            // Log the full error for debugging
-            if (isset($html)) {
-                $this->log("Response HTML: " . substr($html, 0, 1000) . "...", 'debug');
-            }
-            
+            $this->log("Error fetching album images: " . $e->getMessage(), 'error');
             throw $e;
         }
     }
-
+    
+    /**
+     * Fetch images from a Yupoo album
+     * 
+     * @param string $albumUrl The URL of the Yupoo album
+     * @return array Array of image URLs
+     * @throws \Exception If there's an error fetching or processing the album
+     */
     public function fetchAlbumImages($albumUrl)
     {
         try {
-            $this->log("Fetching images from album: {$albumUrl}");
+            $this->log("Fetching images from album: {$albumUrl}", 'debug');
             
-            // Ensure URL is in the correct format
-            $albumUrl = preg_replace('|(/albums){2,}|', '/albums', $albumUrl);
-            
-            // Add /photos to the URL if it's not already there
-            if (!preg_match('/\/photos(\/|$)/', $albumUrl)) {
-                $albumUrl = rtrim($albumUrl, '/') . '/photos';
+            if (empty($albumUrl)) {
+                $this->log("Empty album URL provided", 'error');
+                return [];
             }
             
-            $this->log("Fetching album URL: {$albumUrl}", 'debug');
+            // Preserve and normalize the provided album URL (keep uid parameter if present)
+            // Build an absolute URL when a relative path is provided.
+            $originalInputUrl = $albumUrl;
+            $parsed = parse_url($albumUrl);
             
+            if (empty($parsed['scheme'])) {
+                // Relative URL like "/albums/191..." or "albums/191..."
+                $path = $albumUrl;
+                if ($path[0] !== '/') {
+                    $path = '/' . $path;
+                }
+                $albumUrl = rtrim($this->baseUrl, '/') . $path;
+            }
+            
+            // Ensure uid parameter exists (Yupoo often expects uid=1)
+            $urlParts = parse_url($albumUrl);
+            $query = [];
+            if (!empty($urlParts['query'])) {
+                parse_str($urlParts['query'], $query);
+            }
+            if (!isset($query['uid'])) {
+                $query['uid'] = '1';
+                $rebuilt = ($urlParts['scheme'] ?? 'https') . '://' . $urlParts['host']
+                    . ($urlParts['path'] ?? '')
+                    . '?' . http_build_query($query);
+                $albumUrl = $rebuilt;
+            }
+            
+            $this->log("Using album URL: {$albumUrl} (from input: {$originalInputUrl})", 'debug');
+            
+            // Prepare Host from album URL for header
+            $hostHeader = parse_url($albumUrl, PHP_URL_HOST) ?: '297228164.x.yupoo.com';
+
             $response = Http::withOptions([
                 'verify' => false, // Only for development, remove in production
                 'timeout' => 60,
                 'connect_timeout' => 30,
                 'headers' => [
-                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                     'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language' => 'en-US,en;q=0.5',
-                    'Referer' => $this->baseUrl,
+                    'Accept-Language' => 'en-US,en;q=0.8,zh-CN;q=0.6,zh;q=0.5',
+                    'Referer' => $albumUrl,
+                    'Host' => $hostHeader,
                     'DNT' => '1',
                     'Connection' => 'keep-alive',
                     'Upgrade-Insecure-Requests' => '1',
@@ -661,7 +779,7 @@ class YupooService
                 ],
                 'allow_redirects' => [
                     'max' => 5,
-                    'strict' => true,
+                    'strict' => false,
                     'referer' => true,
                     'protocols' => ['http', 'https'],
                     'track_redirects' => true
@@ -679,61 +797,174 @@ class YupooService
             file_put_contents($debugHtmlPath, $html);
             $this->log("Saved album HTML to: " . $debugHtmlPath, 'debug');
             
-            $images = [];
+            // Skip password-protected albums
+            if (stripos($html, 'This album is encrypted') !== false || stripos($html, '请输入相册密码') !== false) {
+                $this->log('Album appears to be password-protected. Skipping extraction.', 'warning');
+                return [];
+            }
+            
+            // Initialize the crawler
             $crawler = new Crawler($html);
             
-            // First, try to extract from JSON data in the page
-            $jsonPatterns = [
-                '/window\.__INITIAL_STATE__\s*=\s*({.*?});/s',
-                '/"photo_list"\s*:\s*(\[.*?\])/s',
-                '/"photos"\s*:\s*(\[.*?\])/s',
-                '/"items"\s*:\s*(\[.*?\])/s',
-                '/"list"\s*:\s*(\[.*?\])/s',
-                '/"photo"\s*:\s*\{(.*?)\}/s',
-                '/"photoList"\s*:\s*(\[.*?\])/s',
-                '/"photo_list"\s*:\s*\[(.*?)\]/s',
-                '/"photo"\s*:\s*\[(.*?)\]/s',
-                '/"photos"\s*:\s*\[(.*?)\]/s',
-                '/"items"\s*:\s*\[(.*?)\]/s',
-                '/"list"\s*:\s*\[(.*?)\]/s'
-            ];
+            // Try to extract images from the page content
+            $images = [];
+            $addedMap = []; // fast de-duplication map
             
+            // 1. First try to find JSON data containing image information
             $jsonFound = false;
-            foreach ($jsonPatterns as $pattern) {
-                if (preg_match_all($pattern, $html, $matches, PREG_SET_ORDER)) {
-                    $this->log("Found potential JSON data with pattern: " . substr($pattern, 0, 30) . "...", 'debug');
+            
+            $this->log("Starting to search for JSON data in script tags", 'debug');
+            
+            // Look for common JSON patterns in script tags
+            if (preg_match_all('/<script[^>]*>([^<]+)<\/script>/is', $html, $scriptMatches)) {
+                $this->log("Found " . count($scriptMatches[1]) . " script tags in the page", 'debug');
+                
+                foreach ($scriptMatches[1] as $index => $scriptContent) {
+                    $this->log("Checking script tag #$index", 'debug');
                     
-                    foreach ($matches as $match) {
-                        try {
-                            $jsonStr = $match[1];
-                            // Try to fix common JSON issues
-                            $jsonStr = preg_replace('/,\s*}/', '}', $jsonStr); // Remove trailing commas
-                            $jsonStr = preg_replace('/,\s*\]/', ']', $jsonStr); // Remove trailing commas in arrays
+                    // Try to find JSON data in the script content
+                    $jsonPatterns = [
+                        'window.__INITIAL_STATE__' => '/window\.__INITIAL_STATE__\s*=\s*({.+?});/is',
+                        'photoList' => '/"photoList"\s*:\s*(\[.+?\])/is',
+                        'photos' => '/"photos"\s*:\s*(\[.+?\])/is'
+                    ];
+                    
+                    foreach ($jsonPatterns as $patternName => $pattern) {
+                        if (preg_match($pattern, $scriptContent, $jsonMatches)) {
+                            $this->log("Found JSON data with pattern: $patternName", 'debug');
                             
+                            $jsonStr = $jsonMatches[1];
                             $jsonData = json_decode($jsonStr, true);
                             
-                            if (json_last_error() === JSON_ERROR_NONE && (is_array($jsonData) || is_object($jsonData))) {
-                                $this->log("Successfully decoded JSON data", 'debug');
-                                $this->extractImagesFromJson((array)$jsonData, $images);
+                            if (json_last_error() === JSON_ERROR_NONE) {
+                                $this->log("Successfully decoded JSON data from $patternName", 'debug');
+                                $this->log("JSON data structure: " . json_encode(array_keys_recursive($jsonData), JSON_PRETTY_PRINT), 'debug');
+                                
+                                $this->extractImagesFromJson($jsonData, $images);
                                 if (!empty($images)) {
-                                    $this->log("Successfully extracted " . count($images) . " images from JSON pattern", 'debug');
+                                    $this->log("Successfully extracted " . count($images) . " images from JSON data");
                                     $jsonFound = true;
-                                    break 2; // Exit both loops
+                                    break 2; // Break out of both loops
+                                } else {
+                                    $this->log("No images found in the JSON data", 'debug');
                                 }
                             } else {
-                                $this->log("JSON decode error: " . json_last_error_msg() . " for data: " . substr($jsonStr, 0, 200), 'debug');
+                                $this->log("Failed to decode JSON data: " . json_last_error_msg(), 'debug');
                             }
-                        } catch (\Exception $e) {
-                            $this->log("Error processing JSON data: " . $e->getMessage(), 'warning');
-                            $this->log("JSON data: " . substr($match[1] ?? '', 0, 200), 'debug');
                         }
                     }
                 }
+            } else {
+                $this->log("No script tags found in the page", 'debug');
             }
             
-            $this->log("Falling back to HTML parsing for images");
+            // 2. If no JSON data found, try regex patterns
+            if (!$jsonFound) {
+                // Try to extract image URLs using regex patterns
+                $patterns = [
+                    // Direct Yupoo photo CDN links
+                    '/(https?:\\/\\/photo\\.yupoo\\.com\\/[^\\s"\']+\\.(?:jpg|jpeg|png|gif|webp))/i',
+                    // Common lazy-load attributes
+                    '/data-src=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"]/i',
+                    '/data-original=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"]/i',
+                    '/data-origin-src=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"]/i',
+                    '/data-lazy=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"]/i',
+                    '/data-lazy-src=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"]/i',
+                    // Background-image URLs
+                    '/background-image:\\s*url\([\'\"]?([^\'\"\)]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"\)]*?)[\'\"]?\)/i',
+                    // img src attributes
+                    '/<img[^>]+src=[\'\"]([^\'\"]+\\.(?:jpg|jpeg|png|gif|webp)[^\'\"]*?)[\'\"][^>]*>/i'
+                ];
+
+                foreach ($patterns as $patternIndex => $pattern) {
+                    $this->log("Trying pattern #$patternIndex: " . substr($pattern, 0, 50) . (strlen($pattern) > 50 ? '...' : ''), 'debug');
+
+                    if (preg_match_all($pattern, $html, $urlMatches, PREG_SET_ORDER)) {
+                        $this->log("Found " . count($urlMatches) . " potential image URLs with pattern #$patternIndex", 'debug');
+
+                        foreach ($urlMatches as $matchIndex => $match) {
+                            $url = $match[1] ?? $match[0];
+                            $originalUrl = $url;
+
+                            if (empty($url)) {
+                                $this->log("Empty URL found in match #$matchIndex", 'debug');
+                                continue;
+                            }
+
+                            $this->log("Processing URL #$matchIndex: " . substr($url, 0, 100), 'debug');
+
+                            $url = str_replace(['\\/', '\/'], '/', $url);
+                            $url = html_entity_decode($url);
+
+                            // Skip data URLs and known non-image patterns
+                            if (strpos($url, 'data:') === 0) {
+                                $this->log("Skipping data URL", 'debug');
+                                continue;
+                            }
+
+                            if (preg_match('/(\\.svg|logo|icon|loading|placeholder|spinner|notaccess|_no_photo|_empty|_default)/i', $url)) {
+                                $this->log("Skipping non-image URL: $url", 'debug');
+                                continue;
+                            }
+
+                            // Make sure URL is absolute
+                            if (strpos($url, '//') === 0) {
+                                $url = 'https:' . $url;
+                                $this->log("Converted protocol-relative URL to: $url", 'debug');
+                            } elseif (strpos($url, 'http') !== 0) {
+                                $base = rtrim($this->baseUrl, '/');
+                                $url = $base . '/' . ltrim($url, '/');
+                                $this->log("Converted relative URL to absolute: $url", 'debug');
+                            }
+
+                            // Fix Yupoo image URLs to get higher quality
+                            $originalUrl = $url;
+                            $url = preg_replace('/(\d+)_[a-z0-9]+\\.(jpg|jpeg|png|gif|webp)$/i', '$1.$2', $url);
+                            $url = preg_replace('/_(?:square|thumb|small|medium|big)\\.(jpg|jpeg|png|gif|webp)(\\?.*)?$/i', '.$1', $url);
+
+                            // Skip low-res filenames that are exactly square/small/medium/big/thumb
+                            $basename = strtolower(basename(parse_url($url, PHP_URL_PATH)));
+                            if (in_array($basename, ['square.jpg','small.jpg','medium.jpg','big.jpg','thumb.jpg'])) {
+                                $this->log("Skipping low-res variant filename: $basename ($url)", 'debug');
+                                continue;
+                            }
+
+                            if ($originalUrl !== $url) {
+                                $this->log("Improved image quality URL: $originalUrl -> $url", 'debug');
+                            }
+
+                            // Check for duplicate URLs via map
+                            if (!isset($addedMap[$url])) {
+                                $this->log("Adding new image URL: $url", 'debug');
+                                $images[] = [
+                                    'url' => $url,
+                                    'title' => 'Imported from Yupoo',
+                                ];
+                                $addedMap[$url] = true;
+                            } else {
+                                $this->log("Skipping duplicate URL: $url", 'debug');
+                            }
+                        }
+                    } else {
+                        $this->log("No matches found for pattern #$patternIndex", 'debug');
+                    }
+                }
+
+                if (!empty($images)) {
+                    $this->log("Found " . count($images) . " images using regex patterns");
+                    return $images;
+                }
+            }
             
-            // Try different selectors to find images
+            // 3. If still no images, try HTML parsing with selectors
+            if (empty($images)) {
+                $this->log("No images found with JSON or regex, trying HTML selectors");
+                
+                // Log a sample of the HTML for debugging
+                $htmlSample = substr($html, 0, 2000);
+                $this->log("HTML sample (first 2000 chars): " . $htmlSample, 'debug');
+            }
+            
             $selectors = [
                 // Yupoo specific selectors
                 '.album_photo img',
@@ -769,18 +1000,21 @@ class YupooService
                                 // Try to get image URL from different attributes
                                 $src = null;
                                 $href = null;
-                                
+                            
                                 if ($node->nodeName() === 'img') {
                                     $src = $node->attr('src');
                                     $dataSrc = $node->attr('data-src');
                                     $dataOriginal = $node->attr('data-original');
+                                    $dataOriginSrc = $node->attr('data-origin-src');
+                                    $dataLazy = $node->attr('data-lazy');
+                                    $dataLazySrc = $node->attr('data-lazy-src');
                                     
-                                    // Prefer data-src or data-original as they often contain higher quality images
-                                    $src = $dataOriginal ?? $dataSrc ?? $src;
+                                    // Prefer higher-quality/lazy attributes when present
+                                    $src = $dataOriginSrc ?? $dataOriginal ?? $dataLazySrc ?? $dataLazy ?? $dataSrc ?? $src;
                                 } elseif ($node->nodeName() === 'a') {
                                     $href = $node->attr('href');
                                     // If it's a link, check if it points to an image
-                                    if ($href && preg_match('/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i', $href)) {
+                                    if ($href && preg_match('/\\.(jpg|jpeg|png|gif|webp)(\\?.*)?$/i', $href)) {
                                         $src = $href;
                                     }
                                 }
@@ -793,7 +1027,7 @@ class YupooService
                                 
                                 // Skip data URLs and known non-image patterns
                                 if (strpos($src, 'data:') === 0 || 
-                                    preg_match('/(\.svg|logo|icon|loading|placeholder|spinner|notaccess|_no_photo|_empty|_default)/i', $src)) {
+                                    preg_match('/(\\.svg|logo|icon|loading|placeholder|spinner|notaccess|_no_photo|_empty|_default)/i', $src)) {
                                     $this->log("Skipping non-image URL: $src", 'debug');
                                     return;
                                 }
@@ -801,8 +1035,8 @@ class YupooService
                                 // Handle Yupoo's image URL patterns
                                 if (strpos($src, 'photo.yupoo.com') !== false) {
                                     // Convert from thumbnail to full size for Yupoo
-                                    $src = preg_replace('/(\d+)_[a-z0-9]+\.(jpg|jpeg|png|gif|webp)$/i', '$1.$2', $src);
-                                    $src = preg_replace('/_\w+\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i', '.$1', $src);
+                                    $src = preg_replace('/(\d+)_[a-z0-9]+\\.(jpg|jpeg|png|gif|webp)$/i', '$1.$2', $src);
+                                    $src = preg_replace('/_\\w+\\.(jpg|jpeg|png|gif|webp)(\\?.*)?$/i', '.$1', $src);
                                 }
                                 
                                 // Make sure URL is absolute and fix double domains
@@ -812,13 +1046,19 @@ class YupooService
                                     $src = rtrim($this->baseUrl, '/') . '/' . ltrim($src, '/');
                                 }
                                 
-                                // Fix URLs with double domains
                                 if (strpos($src, 'x.yupoo.com/photo.yupoo.com') !== false) {
                                     $src = str_replace('x.yupoo.com/photo.yupoo.com', 'photo.yupoo.com', $src);
                                 }
                                 
+                                // Skip low-res filenames that are exactly square/small/medium/big/thumb
+                                $basename = strtolower(basename(parse_url($src, PHP_URL_PATH)));
+                                if (in_array($basename, ['square.jpg','small.jpg','medium.jpg','big.jpg','thumb.jpg'])) {
+                                    $this->log("Skipping low-res variant filename (selector): $basename ($src)", 'debug');
+                                    return;
+                                }
+
                                 // Only allow common image extensions
-                                if (!preg_match('/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i', $src)) {
+                                if (!preg_match('/\\.(jpg|jpeg|png|gif|webp)(\\?.*)?$/i', $src)) {
                                     $this->log("Skipping non-image URL: {$src}", 'debug');
                                     return;
                                 }
@@ -845,68 +1085,6 @@ class YupooService
             // Add found images to the results
             $images = array_merge($images, $foundImages);
             
-            // If still no images, try to extract from alternative JSON patterns
-            if (empty($images)) {
-                $this->log("No images found with standard selectors, trying alternative JSON patterns");
-                
-                // Look for various JSON patterns in the page
-                $jsonPatterns = [
-                    '/"photo_list"\s*:\s*(\[.*?\])/s',
-                    '/"photos"\s*:\s*(\[.*?\])/s',
-                    '/"items"\s*:\s*(\[.*?\])/s',
-                    '/"list"\s*:\s*(\[.*?\])/s'
-                ];
-                
-                foreach ($jsonPatterns as $pattern) {
-                    if (preg_match($pattern, $html, $matches)) {
-                        $this->log("Found potential JSON data with pattern: $pattern", 'debug');
-                        try {
-                            $jsonData = json_decode($matches[1], true);
-                            if (json_last_error() === JSON_ERROR_NONE && is_array($jsonData)) {
-                                $this->extractImagesFromJson($jsonData, $images);
-                                if (!empty($images)) {
-                                    $this->log("Successfully extracted " . count($images) . " images from JSON pattern", 'debug');
-                                    break;
-                                }
-                            }
-                        } catch (\Exception $e) {
-                            $this->log("Error processing JSON data: " . $e->getMessage(), 'warning');
-                        }
-                    }
-                }
-            }
-            
-            // If still no images, try to extract from alternative JSON patterns
-            if (empty($images)) {
-                $this->log("No images found with standard selectors, trying alternative JSON patterns");
-                
-                // Look for various JSON patterns in the page
-                $jsonPatterns = [
-                    '/"photo_list"\s*:\s*(\[.*?\])/s',
-                    '/"photos"\s*:\s*(\[.*?\])/s',
-                    '/"items"\s*:\s*(\[.*?\])/s',
-                    '/"list"\s*:\s*(\[.*?\])/s'
-                ];
-                
-                foreach ($jsonPatterns as $pattern) {
-                    if (preg_match($pattern, $html, $matches)) {
-                        $this->log("Found potential JSON data with pattern: $pattern", 'debug');
-                        try {
-                            $jsonData = json_decode($matches[1], true);
-                            if (json_last_error() === JSON_ERROR_NONE && is_array($jsonData)) {
-                                $this->extractImagesFromJson($jsonData, $images);
-                                if (!empty($images)) {
-                                    $this->log("Successfully extracted " . count($images) . " images from JSON pattern", 'debug');
-                                    break;
-                                }
-                            }
-                        } catch (\Exception $e) {
-                            $this->log("Error processing JSON data: " . $e->getMessage(), 'warning');
-                        }
-                    }
-                }
-            }
-            
             if (empty($images)) {
                 $this->log("No images found in the album", 'warning');
             } else {
@@ -916,17 +1094,12 @@ class YupooService
             return $images;
             
         } catch (\Exception $e) {
-            $this->log("Error fetching album images: " . $e->getMessage(), 'error');
+            $this->log("Error in fetchAlbumImages: " . $e->getMessage(), 'error');
             throw $e;
         }
-    }
-    
-    public function downloadImage($imageUrl, $type = 'images')
-    {
-        if (empty($imageUrl)) {
-            throw new Exception("Empty image URL provided");
-        }
+}
 
+    public function downloadImage($imageUrl, $type = 'images') {
         try {
             // Clean up the URL first
             $imageUrl = trim($imageUrl);
@@ -956,25 +1129,32 @@ class YupooService
                 throw new Exception('URL does not appear to be a direct image link: ' . $imageUrl);
             }
             
-            // Get storage path from config
-            $directory = $this->config['storage'][$type] ?? $type;
-            $storagePath = 'public/' . ltrim($directory, '/');
+            // Determine storage directory (relative to the public disk)
+            // If a numeric type is passed (album id), nest under images/<album_id>
+            if (is_numeric($type)) {
+                $directory = 'images/' . $type;
+            } else {
+                // Prefer configured directory key, fallback to provided type
+                $directory = $this->config['storage'][$type] ?? $type;
+            }
+            $directory = trim($directory, '/');
             
             // Generate a unique filename with proper extension
             $filename = $this->generateImageFilename($imageUrl);
             $relativePath = $directory . '/' . $filename;
+            $fullPath = 'app/public/' . $relativePath;
             
-            // Skip if already exists
-            if (Storage::exists($relativePath)) {
+            // Skip if already exists (use public disk)
+            if (Storage::disk('public')->exists($relativePath)) {
                 $this->log("Skipping existing image: {$filename}");
-                return $relativePath;
+                return $relativePath; // Return path relative to the public disk
             }
             
             $this->log("Downloading image: {$imageUrl}");
             
-            // Ensure directory exists
-            if (!Storage::exists($storagePath)) {
-                Storage::makeDirectory($storagePath, 0755, true);
+            // Ensure directory exists on the public disk
+            if (!Storage::disk('public')->exists($directory)) {
+                Storage::disk('public')->makeDirectory($directory, 0755, true);
             }
             
             // Download the image with retry logic
@@ -1043,12 +1223,28 @@ class YupooService
                         throw new Exception('Unsupported image type: ' . ($image_info[2] ?? 'unknown'));
                     }
                     
-                    // Save the image
-                    if (!Storage::put($relativePath, $image)) {
+                    // Log storage paths for debugging
+                    $this->log("Saving image to storage path (public disk): {$relativePath}", 'debug');
+                    $this->log("Full storage path: " . storage_path('app/public/' . $relativePath), 'debug');
+                    
+                    // Save the image to the public disk
+                    $saved = Storage::disk('public')->put($relativePath, $image);
+                    
+                    if (!$saved) {
+                        $this->log("Failed to save image to storage. Check permissions for: " . storage_path('app/public/' . $directory), 'error');
                         throw new Exception('Failed to save image to storage');
                     }
                     
-                    $this->log("Successfully downloaded image: {$filename}");
+                    // Verify the file was actually written
+                    if (!Storage::disk('public')->exists($relativePath)) {
+                        $this->log("File verification failed. File does not exist at: " . storage_path('app/public/' . $relativePath), 'error');
+                        throw new Exception('File was not saved correctly');
+                    }
+                    
+                    $fileSize = Storage::disk('public')->size($relativePath);
+                    $this->log("Successfully saved image: {$filename} (Size: {$fileSize} bytes)", 'debug');
+                    
+                    // Return the relative path expected by Filament components
                     return $relativePath;
                     
                 } catch (\Exception $e) {
@@ -1237,6 +1433,11 @@ class YupooService
                     $albumName = $this->cleanAlbumName($albumData['title'] ?? 'Untitled Album');
                     $albumUrl = $albumData['url'] ?? null;
                     
+                    // Clean up the album URL to remove any duplicate /albums segments
+                    if ($albumUrl) {
+                        $albumUrl = preg_replace('|(/albums){2,}|', '/albums', $albumUrl);
+                    }
+                    
                     $this->log(sprintf("Processing album %d/%d: %s (URL: %s)", 
                         $stats['total_albums'], 
                         count($albums), 
@@ -1256,39 +1457,44 @@ class YupooService
                     $this->log("Checking if album exists: " . $albumName, 'debug');
                     $album = $this->albumModel->where('title', $albumName)->first();
                     
+                    $isNewAlbum = false;
                     if ($album) {
                         $this->log("Album already exists with ID: " . $album->id, 'debug');
-                    }
-                    
-                    if ($album) {
-                        $this->log("Album already exists, skipping: " . $albumName, 'debug');
                         $stats['skipped_albums']++;
-                        continue;
-                    }
-                    
-                    // Create a default collection if none exists
-                    $collection = $this->collectionModel->first();
-                    if (!$collection) {
-                        $collection = $this->collectionModel->create([
-                            'name' => 'Imported from Yupoo',
-                            'description' => 'Automatically created collection for Yupoo imports'
+                    } else {
+                        // Create a default collection if none exists
+                        $collection = $this->collectionModel->first();
+                        if (!$collection) {
+                            $collection = $this->collectionModel->create([
+                                'name' => 'Imported from Yupoo',
+                                'description' => 'Automatically created collection for Yupoo imports'
+                            ]);
+                            $this->log("Created default collection: " . $collection->name, 'info');
+                        }
+                        
+                        // Create the album
+                        $album = $this->albumModel->create([
+                            'collection_id' => $collection->id,
+                            'title' => $albumName,
+                            'description' => 'Imported from Yupoo',
+                            'cover_image' => null // Will be set after importing images
                         ]);
-                        $this->log("Created default collection: " . $collection->name, 'info');
+                        
+                        $this->log("Created album: " . $album->title, 'info');
+                        $stats['imported_albums']++;
+                        $isNewAlbum = true;
                     }
                     
-                    // Create the album
-                    $album = $this->albumModel->create([
-                        'collection_id' => $collection->id,
-                        'title' => $albumName,
-                        'description' => 'Imported from Yupoo',
-                        'cover_image' => null // Will be set after importing images
-                    ]);
-                    
-                    $this->log("Created album: " . $album->title, 'info');
-                    $stats['imported_albums']++;
                     
                     // Now import images for this album
-                    $albumImages = $this->fetchAlbumImages($albumData['url']);
+                    // Fix URL to prevent duplicate /albums/ in the path
+                    $albumUrl = preg_replace('|(/albums){2,}|', '/albums', $albumData['url']);
+                    $this->log("Processing album URL: $albumUrl", 'debug');
+                    
+                    // Get images from the album
+                    $this->log("Fetching images for album: {$albumData['title']}", 'debug');
+                    $albumImages = $this->fetchAlbumImages($albumUrl);
+                    $this->log("Found " . count($albumImages) . " images in album: {$albumData['title']}", 'debug');
                     
                     if (empty($albumImages)) {
                         $this->log("No images found in album: " . $album->title, 'warning');
@@ -1312,23 +1518,18 @@ class YupooService
                                 continue;
                             }
                             
-                            // Create the image
-                            $image = $this->imageModel->create([
-                                'album_id' => $album->id,
-                                'title' => $this->cleanImageName($imageData['name'] ?? 'Image ' . uniqid()),
-                                'description' => 'Imported from Yupoo',
-                                'original_url' => $imageData['url'],
-                                'path' => null, // Will be set after download
-                                'category_id' => null, // Will be set based on album
-                                'is_featured' => false,
-                                'order' => 0,
-                            ]);
-                            
-                            // Download and save the image
+                            // Download and save the image first
                             $savedPath = $this->downloadImage($imageData['url'], $album->id);
                             
                             if ($savedPath) {
-                                $image->update(['path' => $savedPath]);
+                                // Create the image with the saved path
+                                $image = $this->imageModel->create([
+                                    'album_id' => $album->id,
+                                    'title' => $this->cleanImageName($imageData['name'] ?? 'Image ' . uniqid()),
+                                    'image_path' => $savedPath,
+                                    'description' => 'Imported from Yupoo',
+                                    'original_url' => $imageData['url']
+                                ]);
                                 
                                 // If this is the first image, set it as the album cover
                                 if ($album->cover_image === null) {
@@ -1721,16 +1922,41 @@ class YupooService
      */
     protected function log($message, $level = 'info', array $context = [])
     {
+        // Suppress debug logs unless debug verbosity is enabled
+        if (strtolower($level) === 'debug' && !$this->debug) {
+            return;
+        }
         // Add timestamp and context to the message
         $timestamp = now()->toDateTimeString();
-        $contextStr = !empty($context) ? ' ' . json_encode($context, JSON_PRETTY_PRINT) : '';
+        
+        // Convert context to string, handling large arrays
+        $contextStr = '';
+        if (!empty($context)) {
+            if (is_array($context)) {
+                // For large arrays, just show the keys
+                if (count($context) > 5) {
+                    $contextStr = ' ' . json_encode(array_keys($context));
+                } else {
+                    $contextStr = ' ' . json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                }
+            } else {
+                $contextStr = ' ' . (string)$context;
+            }
+        }
+        
         $logMessage = "[$timestamp] [YupooService][$level] $message$contextStr";
         
-        // Always log to Laravel's log file
+        // Log to Laravel's log file
         \Log::log($level, $logMessage);
         
         // If running in console, output to console
-        if (app()->runningInConsole() && app()->bound('console.output')) {
+        if (app()->runningInConsole()) {
+            // Use direct output if we can't get the output interface
+            if (!app()->bound('console.output')) {
+                echo "$logMessage\n";
+                return;
+            }
+            
             try {
                 $output = app('console.output');
                 
@@ -1740,7 +1966,7 @@ class YupooService
                 
                 // Add context if present
                 if (!empty($context)) {
-                    $formattedMessage .= "\n" . json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                    $formattedMessage .= "\n" . json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 }
                 
                 switch (strtolower($level)) {
@@ -1751,7 +1977,7 @@ class YupooService
                         $output->writeln("<comment>$formattedMessage</comment>");
                         break;
                     case 'debug':
-                        if ($output->isVerbose()) {
+                        if ($this->debug && $output->isVerbose()) {
                             $output->writeln("<fg=gray>$formattedMessage</>");
                         }
                         break;

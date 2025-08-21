@@ -46,7 +46,6 @@ Represents individual product images
 - `id` (integer)
 - `album_id` (integer, foreign key)
 - `title` (string)
-- `category` (string, nullable)
 - `image_path` (string)
 - `created_at` (timestamp)
 - `updated_at` (timestamp)
@@ -171,7 +170,6 @@ GET /albums/{albumId}/images
   {
     "id": 1,
     "title": "Executive Briefcase - Black",
-    "category": "briefcase",
     "image_path": "images/filename.jpg",
     "album_id": 1
   }

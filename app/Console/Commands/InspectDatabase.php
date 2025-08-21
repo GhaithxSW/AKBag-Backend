@@ -95,7 +95,7 @@ class InspectDatabase extends Command
                 $this->line(str_repeat('-', 50));
                 
                 // Show sample of specific columns that might be important for relationships
-                $importantColumns = array_intersect($columns, ['id', 'album_id', 'category_id', 'title', 'name']);
+                $importantColumns = array_intersect($columns, ['id', 'album_id', 'title', 'name']);
                 if (count($importantColumns) > 0) {
                     $this->info("\nSample IDs and relationships (first 5 rows):");
                     $sampleRelations = DB::table($tableName)

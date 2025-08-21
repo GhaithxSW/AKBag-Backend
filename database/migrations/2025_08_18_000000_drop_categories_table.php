@@ -11,13 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('images', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('album_id')->constrained('albums')->onDelete('cascade');
-            $table->string('title');
-            $table->string('image_path');
-            $table->timestamps();
-        });
+        Schema::dropIfExists('categories');
     }
 
     /**
@@ -25,6 +19,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('images');
+        // This is intentionally left blank to prevent data loss
     }
 };

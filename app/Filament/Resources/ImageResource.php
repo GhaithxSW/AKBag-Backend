@@ -38,6 +38,7 @@ class ImageResource extends Resource
                 Forms\Components\FileUpload::make('image_path')
                     ->label('Image')
                     ->image()
+                    ->disk('public')
                     ->directory('images')
                     ->required()
                     ->columnSpanFull(),

@@ -29,7 +29,6 @@ class ImageController extends Controller
         $data = $request->validate([
             'album_id' => 'required|exists:albums,id',
             'title' => 'required|string|max:255',
-            'category_id' => 'nullable|exists:categories,id',
             'image_path' => 'required|image',
             'description' => 'nullable|string',
         ]);
@@ -41,7 +40,7 @@ class ImageController extends Controller
         $image = Image::create($data);
         
         // Load the relationship for the response
-        $image->load('category');
+        $image->load('album');
         
         return new ImageResource($image);
     }
@@ -57,7 +56,6 @@ class ImageController extends Controller
         $data = $request->validate([
             'album_id' => 'sometimes|required|exists:albums,id',
             'title' => 'sometimes|required|string|max:255',
-            'category_id' => 'nullable|exists:categories,id',
             'image_path' => 'nullable|image',
             'description' => 'nullable|string',
         ]);
@@ -73,7 +71,7 @@ class ImageController extends Controller
         $image->update($data);
         
         // Refresh the relationship for the response
-        $image->load('category');
+        $image->load('album');
         
         return new ImageResource($image);
     }

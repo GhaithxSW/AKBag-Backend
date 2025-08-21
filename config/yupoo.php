@@ -72,9 +72,6 @@ return [
         'album' => [
             'description' => 'Imported from Yupoo',
         ],
-        'image' => [
-            'category' => 'imported',
-        ],
     ],
 
     /*

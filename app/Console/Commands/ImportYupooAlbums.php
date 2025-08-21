@@ -56,7 +56,9 @@ class ImportYupooAlbums extends Command
         // Set debug mode if requested
         if ($this->option('debug')) {
             config(['app.debug' => true]);
-            $this->info("Debug mode enabled");
+            // Also enable YupooService detailed debug logging
+            config(['yupoo.logging.debug' => true]);
+            $this->info("Debug mode enabled (Yupoo debug logging ON)");
         }
 
         // Ensure we have console output

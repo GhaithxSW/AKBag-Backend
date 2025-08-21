@@ -96,24 +96,6 @@ This will:
 4. Fetch and display images from the first album
 5. Test downloading a sample image
 
-## Image Categories
-
-The importer supports automatic categorization of images. Here's how it works:
-
-### Category Assignment
-
-1. **Automatic Assignment**: The importer will automatically create categories based on album names
-2. **Manual Assignment**: You can manually assign categories in the admin panel
-3. **Default Category**: Images without a specific category will be assigned to the 'Uncategorized' category
-
-### Managing Categories
-
-Categories can be managed through the Filament admin panel:
-
-1. Navigate to `/admin/categories`
-2. Add, edit, or delete categories as needed
-3. Assign categories to images in the Images section
-
 ## Troubleshooting
 
 ### Common Issues
