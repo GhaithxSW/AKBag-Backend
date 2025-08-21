@@ -29,7 +29,6 @@ class CollectionController extends Controller
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'slug' => 'required|string|unique:collections,slug',
         ]);
         $collection = Collection::create($data);
         return new CollectionResource($collection);
@@ -44,7 +43,6 @@ class CollectionController extends Controller
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
-            'slug' => 'sometimes|required|string|unique:collections,slug,' . $collection->id,
         ]);
         $collection->update($data);
         return new CollectionResource($collection);

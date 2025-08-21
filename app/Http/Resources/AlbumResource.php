@@ -15,7 +15,6 @@ class AlbumResource extends JsonResource
             'title' => $this->title,
             'description' => $this->description,
             'cover_image' => $this->cover_image ? asset('storage/' . $this->cover_image) : null,
-            'slug' => $this->slug,
             'images' => ImageResource::collection($this->whenLoaded('images')),
         ];
     }

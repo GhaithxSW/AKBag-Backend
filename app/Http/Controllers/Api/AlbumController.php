@@ -30,7 +30,6 @@ class AlbumController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'cover_image' => 'nullable|image',
-            'slug' => 'required|string|unique:albums,slug',
         ]);
         if ($request->hasFile('cover_image')) {
             $data['cover_image'] = $request->file('cover_image')->store('albums', 'public');
@@ -50,7 +49,6 @@ class AlbumController extends Controller
             'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'cover_image' => 'nullable|image',
-            'slug' => 'sometimes|required|string|unique:albums,slug,' . $album->id,
         ]);
         if ($request->hasFile('cover_image')) {
             $data['cover_image'] = $request->file('cover_image')->store('albums', 'public');
