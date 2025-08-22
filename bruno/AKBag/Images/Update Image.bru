@@ -1,0 +1,29 @@
+meta {
+  name: Update Image
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/images/{{imageId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "album_id": 1,
+    "title": "Updated Image",
+    "description": "Updated description for testing",
+    "image_path": "images/updated-image.jpg",
+    "original_url": "https://example.com/updated-image.jpg"
+  }
+}
+
+vars:pre-request {
+  imageId: 1
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1",
+  "name": "AKBag",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ],
+  "environments": {
+    "Production": {
+      "baseUrl": "https://akbag.elev8xr.com"
+    },
+    "Local": {
+      "baseUrl": "http://localhost:8000"
+    }
+  }
+}

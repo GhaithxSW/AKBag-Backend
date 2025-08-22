@@ -1,0 +1,19 @@
+meta {
+  name: Delete Collection
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/api/collections/{{collectionId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  collectionId: 1
+}

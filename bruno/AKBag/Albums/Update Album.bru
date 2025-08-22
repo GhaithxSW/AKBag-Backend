@@ -1,0 +1,28 @@
+meta {
+  name: Update Album
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/albums/{{albumId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "collection_id": 1,
+    "title": "Updated Album",
+    "description": "Updated description for testing",
+    "cover_image": "images/updated-cover.jpg"
+  }
+}
+
+vars:pre-request {
+  albumId: 1
+}

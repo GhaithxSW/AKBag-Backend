@@ -1,0 +1,25 @@
+meta {
+  name: Create Image
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/images
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "album_id": 1,
+    "title": "New Image",
+    "description": "A sample image for testing",
+    "image_path": "images/sample-image.jpg",
+    "original_url": "https://example.com/original-image.jpg"
+  }
+}

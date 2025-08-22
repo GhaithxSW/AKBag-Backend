@@ -1,0 +1,26 @@
+meta {
+  name: Update Collection
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/collections/{{collectionId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Updated Collection",
+    "description": "Updated description for testing"
+  }
+}
+
+vars:pre-request {
+  collectionId: 1
+}

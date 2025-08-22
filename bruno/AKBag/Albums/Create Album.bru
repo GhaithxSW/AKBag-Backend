@@ -1,0 +1,24 @@
+meta {
+  name: Create Album
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/albums
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "collection_id": 1,
+    "title": "New Album",
+    "description": "A sample album for testing",
+    "cover_image": "images/sample-cover.jpg"
+  }
+}

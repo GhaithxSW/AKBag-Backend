@@ -1,0 +1,15 @@
+meta {
+  name: Get Collection
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/collections/{{collectionId}}
+  body: none
+  auth: none
+}
+
+vars:pre-request {
+  collectionId: 1
+}

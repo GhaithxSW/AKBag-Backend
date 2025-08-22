@@ -1,0 +1,15 @@
+meta {
+  name: Get Album
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/albums/{{albumId}}
+  body: none
+  auth: none
+}
+
+vars:pre-request {
+  albumId: 1
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get Image
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/images/{{imageId}}
+  body: none
+  auth: none
+}
+
+vars:pre-request {
+  imageId: 1
+}
