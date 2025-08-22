@@ -9,6 +9,10 @@ use Illuminate\Support\Str;
 use Symfony\Component\DomCrawler\Crawler;
 use Exception;
 use App\Helpers\StringHelper;
+use GuzzleHttp\Client;
+use GuzzleHttp\Promise\Utils;
+use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Collection;
 
 class YupooService
 {
@@ -19,6 +23,12 @@ class YupooService
     protected $logger;
     // Controls whether debug-level logs are emitted
     protected $debug = false;
+    
+    // Cache for existing image URLs to speed up duplicate detection
+    protected $existingImageUrls = [];
+    
+    // Guzzle client for async operations
+    protected $asyncClient;
     
     public function __construct()
     {
@@ -33,8 +43,16 @@ class YupooService
             'import' => [
                 'max_albums' => 50,
                 'albums_per_page' => 20,
-                'request_delay' => 2,
-                'image_download_delay' => 500000,
+                'request_delay' => 1, // Reduced from 2 to 1 second
+                'image_download_delay' => 100000, // Reduced from 500ms to 100ms
+                'batch_size' => 8,
+                'concurrent_downloads' => 5,
+                'bulk_insert_size' => 20,
+                'skip_duplicate_check' => false,
+                'progress_interval' => 10,
+                'max_pages_per_album' => 50,
+                'max_empty_pages' => 3,
+                'page_request_delay' => 100000,
             ],
             'storage' => [
                 'covers' => 'yupoo/covers',
@@ -46,18 +64,19 @@ class YupooService
                 'verify' => false,
                 'retry_times' => 3,
                 'retry_sleep' => 1000,
+                'pool_size' => 10,
+                'max_redirects' => 3,
                 'headers' => [
-                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                     'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language' => 'en-US,en;q=0.5',
+                    'Accept-Language' => 'en-US,en;q=0.8,zh-CN;q=0.6,zh;q=0.5',
                     'Accept-Encoding' => 'gzip, deflate, br',
+                    'DNT' => '1',
                     'Connection' => 'keep-alive',
                     'Upgrade-Insecure-Requests' => '1',
-                    'Cache-Control' => 'max-age=0',
-                    'TE' => 'Trailers',
                 ],
                 'allow_redirects' => [
-                    'max' => 5,
+                    'max' => 3, // Reduced from 5 to 3
                     'strict' => false,
                     'referer' => true,
                     'protocols' => ['http', 'https'],
@@ -70,6 +89,21 @@ class YupooService
         
         // Initialize HTTP client with configured options
         $this->httpClient = Http::withOptions($this->config['http']);
+        
+        // Initialize async Guzzle client for batch operations
+        $this->asyncClient = new Client([
+            'timeout' => $this->config['http']['timeout'] ?? 30,
+            'connect_timeout' => $this->config['http']['connect_timeout'] ?? 10,
+            'verify' => $this->config['http']['verify'] ?? false,
+            'headers' => $this->config['http']['headers'] ?? [],
+            'allow_redirects' => [
+                'max' => $this->config['http']['max_redirects'] ?? 3,
+                'strict' => false,
+                'referer' => true,
+                'protocols' => ['http', 'https'],
+                'track_redirects' => true
+            ]
+        ]);
         
         // Import required models
         $this->albumModel = app(\App\Models\Album::class);
@@ -712,16 +746,106 @@ class YupooService
     }
     
     /**
-     * Fetch images from a Yupoo album
+     * Fetch images from all pages of a Yupoo album
      * 
      * @param string $albumUrl The URL of the Yupoo album
-     * @return array Array of image URLs
+     * @param callable|null $progressCallback Progress callback for page processing
+     * @return array Array of image URLs from all pages
      * @throws \Exception If there's an error fetching or processing the album
      */
-    public function fetchAlbumImages($albumUrl)
+    public function fetchAlbumImages($albumUrl, $progressCallback = null)
+    {
+        $allImages = [];
+        $currentPage = 1;
+        $maxPages = $this->config['import']['max_pages_per_album'] ?? 50;
+        $emptyPageCount = 0;
+        $maxEmptyPages = $this->config['import']['max_empty_pages'] ?? 3;
+        
+        $this->log("Starting multi-page fetch for album: {$albumUrl}", 'debug');
+        
+        while ($currentPage <= $maxPages) {
+            try {
+                // Progress callback for page processing
+                if ($progressCallback) {
+                    $progressCallback('pages', $currentPage, $currentPage, "Processing page {$currentPage}");
+                }
+                
+                $this->log("Fetching page {$currentPage} of album: {$albumUrl}", 'debug');
+                
+                // Fetch images from current page
+                $pageImages = $this->fetchAlbumImagesFromPage($albumUrl, $currentPage);
+                
+                if (empty($pageImages)) {
+                    $emptyPageCount++;
+                    $this->log("Page {$currentPage} returned no images (empty page count: {$emptyPageCount})", 'debug');
+                    
+                    if ($emptyPageCount >= $maxEmptyPages) {
+                        $this->log("Reached {$maxEmptyPages} consecutive empty pages, stopping pagination", 'debug');
+                        break;
+                    }
+                } else {
+                    $emptyPageCount = 0; // Reset counter when we find images
+                    $pageImageCount = count($pageImages);
+                    $this->log("Found {$pageImageCount} images on page {$currentPage}", 'debug');
+                    
+                    // Merge images from this page, avoiding duplicates
+                    $existingUrls = array_column($allImages, 'url');
+                    foreach ($pageImages as $image) {
+                        if (!in_array($image['url'], $existingUrls)) {
+                            $allImages[] = $image;
+                        }
+                    }
+                }
+                
+                $currentPage++;
+                
+                // Small delay between page requests to be respectful
+                if ($currentPage <= $maxPages) {
+                    usleep($this->config['import']['page_request_delay'] ?? 100000);
+                }
+                
+            } catch (\Exception $e) {
+                $this->log("Error fetching page {$currentPage}: " . $e->getMessage(), 'warning');
+                
+                // If first page fails, re-throw the exception
+                if ($currentPage == 1) {
+                    throw $e;
+                }
+                
+                // For other pages, just log and continue
+                $emptyPageCount++;
+                if ($emptyPageCount >= $maxEmptyPages) {
+                    $this->log("Too many consecutive page errors, stopping pagination", 'warning');
+                    break;
+                }
+                
+                $currentPage++;
+            }
+        }
+        
+        if ($currentPage > $maxPages) {
+            $this->log("Reached maximum page limit ({$maxPages}) for album", 'warning');
+        }
+        
+        $totalImages = count($allImages);
+        $totalPagesProcessed = $currentPage - 1;
+        $this->log("Multi-page fetch completed: {$totalImages} total images from {$totalPagesProcessed} pages", 'info');
+        
+        return $allImages;
+    }
+    
+    /**
+     * Fetch images from a specific page of a Yupoo album
+     * 
+     * @param string $albumUrl The URL of the Yupoo album
+     * @param int $page The page number to fetch
+     * @return array Array of image URLs from the specified page
+     * @throws \Exception If there's an error fetching or processing the page
+     */
+    protected function fetchAlbumImagesFromPage($albumUrl, $page = 1)
     {
         try {
-            $this->log("Fetching images from album: {$albumUrl}", 'debug');
+            $this->log("Fetching images from album: {$albumUrl} (page {$page})", 'debug');
             
             if (empty($albumUrl)) {
                 $this->log("Empty album URL provided", 'error');
@@ -742,19 +866,27 @@ class YupooService
                 $albumUrl = rtrim($this->baseUrl, '/') . $path;
             }
             
-            // Ensure uid parameter exists (Yupoo often expects uid=1)
+            // Build query parameters including page
             $urlParts = parse_url($albumUrl);
             $query = [];
             if (!empty($urlParts['query'])) {
                 parse_str($urlParts['query'], $query);
             }
+            
+            // Add required parameters
             if (!isset($query['uid'])) {
                 $query['uid'] = '1';
-                $rebuilt = ($urlParts['scheme'] ?? 'https') . '://' . $urlParts['host']
-                    . ($urlParts['path'] ?? '')
-                    . '?' . http_build_query($query);
-                $albumUrl = $rebuilt;
             }
+            
+            // Add page parameter if not first page
+            if ($page > 1) {
+                $query['page'] = $page;
+            }
+            
+            // Rebuild URL with all parameters
+            $albumUrl = ($urlParts['scheme'] ?? 'https') . '://' . $urlParts['host']
+                . ($urlParts['path'] ?? '')
+                . '?' . http_build_query($query);
             
             $this->log("Using album URL: {$albumUrl} (from input: {$originalInputUrl})", 'debug');
             
@@ -1271,6 +1403,602 @@ class YupooService
     }
     
     /**
+     * Load existing image URLs into cache for fast duplicate detection
+     */
+    protected function loadExistingImageUrls()
+    {
+        if (!empty($this->existingImageUrls)) {
+            return; // Already loaded
+        }
+        
+        try {
+            $this->log("Loading existing image URLs for duplicate detection", 'debug');
+            
+            // Get existing URLs and filter out null/empty values
+            $existingUrls = $this->imageModel
+                ->whereNotNull('original_url')
+                ->where('original_url', '!=', '')
+                ->pluck('original_url')
+                ->toArray();
+            
+            // Filter out any remaining non-string values and ensure uniqueness
+            $validUrls = array_filter($existingUrls, function($url) {
+                return is_string($url) && !empty(trim($url));
+            });
+            
+            // Remove duplicates and flip for O(1) lookup
+            $uniqueUrls = array_unique($validUrls);
+            $this->existingImageUrls = array_flip($uniqueUrls);
+            
+            $this->log("Loaded " . count($this->existingImageUrls) . " existing image URLs for duplicate detection", 'debug');
+            
+        } catch (\Exception $e) {
+            $this->log("Error loading existing image URLs: " . $e->getMessage(), 'warning');
+            $this->existingImageUrls = []; // Initialize as empty array on error
+        }
+    }
+    
+    /**
+     * Check if images already exist in bulk (faster than individual queries)
+     */
+    protected function filterNewImages(array $imageUrls)
+    {
+        if ($this->config['import']['skip_duplicate_check'] ?? false) {
+            $this->log("Skipping duplicate check as configured", 'debug');
+            return $imageUrls;
+        }
+        
+        try {
+            $this->loadExistingImageUrls();
+            
+            $newImages = [];
+            foreach ($imageUrls as $url) {
+                // Ensure URL is a valid string before checking
+                if (!is_string($url) || empty(trim($url))) {
+                    $this->log("Skipping invalid URL: " . var_export($url, true), 'debug');
+                    continue;
+                }
+                
+                if (!isset($this->existingImageUrls[$url])) {
+                    $newImages[] = $url;
+                } else {
+                    $this->log("Skipping duplicate image: " . substr($url, -50), 'debug');
+                }
+            }
+            
+            $duplicateCount = count($imageUrls) - count($newImages);
+            if ($duplicateCount > 0) {
+                $this->log("Filtered out {$duplicateCount} duplicate images from batch", 'debug');
+            }
+            
+            return $newImages;
+            
+        } catch (\Exception $e) {
+            $this->log("Error in filterNewImages: " . $e->getMessage() . ", falling back to no filtering", 'warning');
+            // Fallback: return all URLs if filtering fails
+            return array_filter($imageUrls, function($url) {
+                return is_string($url) && !empty(trim($url));
+            });
+        }
+    }
+    
+    /**
+     * Download multiple images concurrently
+     */
+    public function downloadImagesBatch(array $imageUrls, $albumId = null, $progressCallback = null)
+    {
+        $type = $albumId ?? 'images';
+        $batchSize = $this->config['import']['concurrent_downloads'] ?? 5;
+        $results = [];
+        
+        $this->log("Starting batch download of " . count($imageUrls) . " images with batch size {$batchSize}");
+        
+        // Process images in batches to avoid overwhelming the server
+        $chunks = array_chunk($imageUrls, $batchSize);
+        
+        foreach ($chunks as $chunkIndex => $chunk) {
+            $this->log("Processing batch " . ($chunkIndex + 1) . "/" . count($chunks));
+            
+            // Progress callback for download batches
+            if ($progressCallback) {
+                $processedImages = count($results);
+                $progressCallback('download', $processedImages, count($imageUrls), 
+                    "Batch " . ($chunkIndex + 1) . "/" . count($chunks));
+            }
+            
+            $promises = [];
+            foreach ($chunk as $index => $imageUrl) {
+                try {
+                    // Clean up the URL
+                    $imageUrl = $this->cleanImageUrl($imageUrl);
+                    
+                    if (!$this->isValidImageUrl($imageUrl)) {
+                        $this->log("Skipping invalid URL: {$imageUrl}", 'warning');
+                        continue;
+                    }
+                    
+                    // Create async promise
+                    $promises[$index] = $this->asyncClient->getAsync($imageUrl, [
+                        'timeout' => 20,
+                        'connect_timeout' => 10,
+                        'headers' => [
+                            'User-Agent' => $this->config['http']['headers']['User-Agent'] ?? 'Mozilla/5.0',
+                            'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
+                            'Referer' => $this->baseUrl,
+                        ]
+                    ]);
+                    
+                } catch (\Exception $e) {
+                    $this->log("Error creating promise for {$imageUrl}: " . $e->getMessage(), 'warning');
+                }
+            }
+            
+            if (empty($promises)) {
+                continue;
+            }
+            
+            // Wait for all promises to complete
+            try {
+                $responses = Utils::settle($promises)->wait();
+                
+                foreach ($responses as $index => $response) {
+                    $imageUrl = $chunk[$index];
+                    
+                    if ($response['state'] === 'fulfilled') {
+                        try {
+                            $httpResponse = $response['value'];
+                            $statusCode = $httpResponse->getStatusCode();
+                            
+                            if ($statusCode >= 200 && $statusCode < 300) {
+                                $imageData = $httpResponse->getBody()->getContents();
+                                
+                                if (!empty($imageData) && $this->isValidImageData($imageData)) {
+                                    $savedPath = $this->saveImageData($imageData, $imageUrl, $type);
+                                    if ($savedPath) {
+                                        $results[] = [
+                                            'url' => $imageUrl,
+                                            'path' => $savedPath,
+                                            'status' => 'success'
+                                        ];
+                                        
+                                        // Add to existing URLs cache to prevent future duplicates
+                                        $this->existingImageUrls[$imageUrl] = true;
+                                    } else {
+                                        $results[] = [
+                                            'url' => $imageUrl,
+                                            'path' => null,
+                                            'status' => 'retry',
+                                            'error' => 'Failed to save image data'
+                                        ];
+                                    }
+                                } else {
+                                    $results[] = [
+                                        'url' => $imageUrl,
+                                        'path' => null,
+                                        'status' => 'error',
+                                        'error' => 'Invalid or empty image data received'
+                                    ];
+                                }
+                            } else {
+                                // HTTP error status
+                                $results[] = [
+                                    'url' => $imageUrl,
+                                    'path' => null,
+                                    'status' => $statusCode >= 500 ? 'retry' : 'error', // Retry server errors
+                                    'error' => "HTTP {$statusCode}"
+                                ];
+                            }
+                            
+                        } catch (\Exception $e) {
+                            $this->log("Error processing successful response for {$imageUrl}: " . $e->getMessage(), 'warning');
+                            $results[] = [
+                                'url' => $imageUrl,
+                                'path' => null,
+                                'status' => 'retry', // Most processing errors can be retried
+                                'error' => $e->getMessage()
+                            ];
+                        }
+                    } else {
+                        $error = $response['reason'] ?? 'Unknown error';
+                        $errorMessage = $error instanceof \Exception ? $error->getMessage() : (string)$error;
+                        
+                        // Classify error for retry logic
+                        $shouldRetry = $this->shouldRetryError($errorMessage);
+                        
+                        $this->log("Failed to download {$imageUrl}: {$errorMessage}" . 
+                            ($shouldRetry ? ' (will retry)' : ' (permanent failure)'), 'warning');
+                        
+                        $results[] = [
+                            'url' => $imageUrl,
+                            'path' => null,
+                            'status' => $shouldRetry ? 'retry' : 'error',
+                            'error' => $errorMessage
+                        ];
+                    }
+                }
+                
+            } catch (\Exception $e) {
+                $this->log("Batch download error: " . $e->getMessage(), 'error');
+            }
+            
+            // Small delay between batches to be respectful
+            if ($chunkIndex < count($chunks) - 1) {
+                usleep($this->config['import']['image_download_delay'] ?? 100000);
+            }
+        }
+        
+        // Handle retries for failed downloads
+        $retryUrls = array_filter($results, fn($r) => $r['status'] === 'retry');
+        $maxRetries = $this->config['http']['retry_times'] ?? 3;
+        
+        if (!empty($retryUrls) && $maxRetries > 0) {
+            $this->log("Retrying " . count($retryUrls) . " failed downloads...");
+            $retryResults = $this->retryFailedDownloads($retryUrls, $type, $maxRetries, $progressCallback);
+            
+            // Update results with retry outcomes
+            foreach ($retryResults as $retryResult) {
+                $originalIndex = array_search($retryResult['url'], array_column($results, 'url'));
+                if ($originalIndex !== false) {
+                    $results[$originalIndex] = $retryResult;
+                }
+            }
+        }
+        
+        $successCount = count(array_filter($results, fn($r) => $r['status'] === 'success'));
+        $failedCount = count($results) - $successCount;
+        
+        $this->log("Batch download completed: {$successCount}/" . count($imageUrls) . " images downloaded successfully" . 
+            ($failedCount > 0 ? ", {$failedCount} failed" : ""));
+        
+        return $results;
+    }
+    
+    /**
+     * Retry failed downloads with exponential backoff
+     */
+    protected function retryFailedDownloads(array $failedResults, $type, $maxRetries, $progressCallback = null)
+    {
+        $retryResults = [];
+        $retryUrls = array_map(fn($r) => $r['url'], $failedResults);
+        
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            if (empty($retryUrls)) {
+                break;
+            }
+            
+            $this->log("Retry attempt {$attempt}/{$maxRetries} for " . count($retryUrls) . " images");
+            
+            // Exponential backoff: 1s, 2s, 4s, 8s...
+            $backoffDelay = min(pow(2, $attempt - 1), 10); // Cap at 10 seconds
+            if ($attempt > 1) {
+                $this->log("Waiting {$backoffDelay}s before retry...");
+                sleep($backoffDelay);
+            }
+            
+            // Retry with smaller batch size to reduce load
+            $retryBatchSize = max(1, intval(($this->config['import']['concurrent_downloads'] ?? 5) / 2));
+            $chunks = array_chunk($retryUrls, $retryBatchSize);
+            $currentAttemptResults = [];
+            
+            foreach ($chunks as $chunk) {
+                $promises = [];
+                
+                foreach ($chunk as $imageUrl) {
+                    try {
+                        $promises[] = $this->asyncClient->getAsync($imageUrl, [
+                            'timeout' => 30, // Longer timeout for retries
+                            'connect_timeout' => 15,
+                            'headers' => [
+                                'User-Agent' => $this->config['http']['headers']['User-Agent'] ?? 'Mozilla/5.0',
+                                'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
+                                'Referer' => $this->baseUrl,
+                            ]
+                        ]);
+                    } catch (\Exception $e) {
+                        $this->log("Error creating retry promise for {$imageUrl}: " . $e->getMessage(), 'warning');
+                    }
+                }
+                
+                if (!empty($promises)) {
+                    try {
+                        $responses = Utils::settle($promises)->wait();
+                        
+                        foreach ($responses as $index => $response) {
+                            $imageUrl = $chunk[$index];
+                            
+                            if ($response['state'] === 'fulfilled') {
+                                $httpResponse = $response['value'];
+                                $statusCode = $httpResponse->getStatusCode();
+                                
+                                if ($statusCode >= 200 && $statusCode < 300) {
+                                    $imageData = $httpResponse->getBody()->getContents();
+                                    
+                                    if (!empty($imageData) && $this->isValidImageData($imageData)) {
+                                        $savedPath = $this->saveImageData($imageData, $imageUrl, $type);
+                                        if ($savedPath) {
+                                            $currentAttemptResults[] = [
+                                                'url' => $imageUrl,
+                                                'path' => $savedPath,
+                                                'status' => 'success'
+                                            ];
+                                        } else {
+                                            $currentAttemptResults[] = [
+                                                'url' => $imageUrl,
+                                                'path' => null,
+                                                'status' => 'error',
+                                                'error' => 'Failed to save image after retry'
+                                            ];
+                                        }
+                                    } else {
+                                        $currentAttemptResults[] = [
+                                            'url' => $imageUrl,
+                                            'path' => null,
+                                            'status' => 'error',
+                                            'error' => 'Invalid image data on retry'
+                                        ];
+                                    }
+                                } else {
+                                    $currentAttemptResults[] = [
+                                        'url' => $imageUrl,
+                                        'path' => null,
+                                        'status' => 'error',
+                                        'error' => "HTTP {$statusCode} on retry"
+                                    ];
+                                }
+                            } else {
+                                $error = $response['reason'] ?? 'Unknown error';
+                                $currentAttemptResults[] = [
+                                    'url' => $imageUrl,
+                                    'path' => null,
+                                    'status' => 'error',
+                                    'error' => ($error instanceof \Exception ? $error->getMessage() : (string)$error) . " (retry failed)"
+                                ];
+                            }
+                        }
+                        
+                    } catch (\Exception $e) {
+                        $this->log("Retry batch error: " . $e->getMessage(), 'error');
+                        // Mark all chunk URLs as failed
+                        foreach ($chunk as $imageUrl) {
+                            $currentAttemptResults[] = [
+                                'url' => $imageUrl,
+                                'path' => null,
+                                'status' => 'error',
+                                'error' => 'Retry batch failed: ' . $e->getMessage()
+                            ];
+                        }
+                    }
+                }
+                
+                // Small delay between retry chunks
+                if (count($chunks) > 1) {
+                    usleep(500000); // 500ms
+                }
+            }
+            
+            // Update retryResults with current attempt results
+            foreach ($currentAttemptResults as $result) {
+                $retryResults[$result['url']] = $result;
+            }
+            
+            // Remove successful URLs from retry list for next attempt
+            $retryUrls = array_filter($retryUrls, function($url) use ($retryResults) {
+                return !isset($retryResults[$url]) || $retryResults[$url]['status'] !== 'success';
+            });
+            
+            $successfulRetries = count(array_filter($currentAttemptResults, fn($r) => $r['status'] === 'success'));
+            $this->log("Retry attempt {$attempt} completed: {$successfulRetries} successful");
+        }
+        
+        return array_values($retryResults);
+    }
+    
+    /**
+     * Determine if an error should be retried
+     */
+    protected function shouldRetryError($errorMessage)
+    {
+        $errorMessage = strtolower($errorMessage);
+        
+        // Network-related errors that can be retried
+        $retryableErrors = [
+            'timeout',
+            'connection',
+            'timed out',
+            'network',
+            'socket',
+            'curl error',
+            'ssl',
+            'certificate',
+            'reset',
+            'aborted',
+            'refused'
+        ];
+        
+        foreach ($retryableErrors as $retryableError) {
+            if (strpos($errorMessage, $retryableError) !== false) {
+                return true;
+            }
+        }
+        
+        // HTTP status codes that can be retried (5xx server errors, 429 too many requests)
+        if (preg_match('/http [5]\d{2}/', $errorMessage) || strpos($errorMessage, '429') !== false) {
+            return true;
+        }
+        
+        // Permanent errors that should not be retried
+        $permanentErrors = [
+            'not found',
+            '404',
+            'forbidden',
+            '403',
+            'unauthorized',
+            '401',
+            'bad request',
+            '400'
+        ];
+        
+        foreach ($permanentErrors as $permanentError) {
+            if (strpos($errorMessage, $permanentError) !== false) {
+                return false;
+            }
+        }
+        
+        // Default to retry for unknown errors
+        return true;
+    }
+    
+    /**
+     * Clean and validate image URL
+     */
+    protected function cleanImageUrl($imageUrl)
+    {
+        $imageUrl = trim($imageUrl);
+        
+        // Handle protocol-relative URLs
+        if (strpos($imageUrl, '//') === 0) {
+            $imageUrl = 'https:' . $imageUrl;
+        }
+        
+        // Fix common Yupoo URL issues
+        if (strpos($imageUrl, 'x.yupoo.com/photo.yupoo.com') !== false) {
+            $imageUrl = str_replace('x.yupoo.com/photo.yupoo.com', 'photo.yupoo.com', $imageUrl);
+        }
+        
+        // Make sure URL is absolute
+        if (strpos($imageUrl, 'http') !== 0) {
+            $imageUrl = rtrim($this->baseUrl, '/') . '/' . ltrim($imageUrl, '/');
+        }
+        
+        return $imageUrl;
+    }
+    
+    /**
+     * Check if URL is valid for image download
+     */
+    protected function isValidImageUrl($imageUrl)
+    {
+        if (empty($imageUrl)) {
+            return false;
+        }
+        
+        // Skip known non-image URLs and placeholders
+        if (preg_match('/(\.svg|logo|icon|loading|placeholder|spinner|notaccess|_no_photo|_empty|_default)/i', $imageUrl)) {
+            return false;
+        }
+        
+        // Must have image extension
+        if (!preg_match('/\.(jpg|jpeg|png|gif|webp)(?:\?.*)?$/i', $imageUrl)) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Validate image data
+     */
+    protected function isValidImageData($imageData)
+    {
+        if (empty($imageData)) {
+            return false;
+        }
+        
+        // Basic image validation
+        $imageInfo = @getimagesizefromstring($imageData);
+        if ($imageInfo === false) {
+            return false;
+        }
+        
+        $allowedTypes = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP];
+        return in_array($imageInfo[2], $allowedTypes);
+    }
+    
+    /**
+     * Save image data to storage
+     */
+    protected function saveImageData($imageData, $imageUrl, $type = 'images')
+    {
+        try {
+            // Determine storage directory
+            if (is_numeric($type)) {
+                $directory = 'images/' . $type;
+            } else {
+                $directory = $this->config['storage'][$type] ?? $type;
+            }
+            $directory = trim($directory, '/');
+            
+            // Generate filename
+            $filename = $this->generateImageFilename($imageUrl);
+            $relativePath = $directory . '/' . $filename;
+            
+            // Skip if already exists
+            if (Storage::disk('public')->exists($relativePath)) {
+                return $relativePath;
+            }
+            
+            // Ensure directory exists
+            if (!Storage::disk('public')->exists($directory)) {
+                Storage::disk('public')->makeDirectory($directory, 0755, true);
+            }
+            
+            // Save the image
+            $saved = Storage::disk('public')->put($relativePath, $imageData);
+            
+            if (!$saved) {
+                throw new \Exception('Failed to save image to storage');
+            }
+            
+            // Verify the file was saved
+            if (!Storage::disk('public')->exists($relativePath)) {
+                throw new \Exception('File was not saved correctly');
+            }
+            
+            return $relativePath;
+            
+        } catch (\Exception $e) {
+            $this->log("Error saving image data: " . $e->getMessage(), 'error');
+            return null;
+        }
+    }
+    
+    /**
+     * Bulk insert images into database
+     */
+    public function bulkInsertImages(array $imageData, $albumId)
+    {
+        $batchSize = $this->config['import']['bulk_insert_size'] ?? 20;
+        $chunks = array_chunk($imageData, $batchSize);
+        $insertedCount = 0;
+        
+        foreach ($chunks as $chunk) {
+            $insertData = [];
+            
+            foreach ($chunk as $image) {
+                if (!empty($image['path']) && $image['status'] === 'success') {
+                    $insertData[] = [
+                        'album_id' => $albumId,
+                        'title' => $this->cleanImageName($image['name'] ?? 'Image ' . uniqid()),
+                        'image_path' => $image['path'],
+                        'description' => 'Imported from Yupoo',
+                        'original_url' => $image['url'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            }
+            
+            if (!empty($insertData)) {
+                $this->imageModel->insert($insertData);
+                $insertedCount += count($insertData);
+            }
+        }
+        
+        $this->log("Bulk inserted {$insertedCount} images for album ID {$albumId}");
+        return $insertedCount;
+    }
+    
+    /**
      * Generate a unique filename for an image
      */
     protected function generateImageFilename($url, $title = null)
@@ -1384,13 +2112,27 @@ class YupooService
      * Log a message
      */
     /**
+     * Import albums with progress callback support
+     *
+     * @param string|null $baseUrl The base Yupoo URL to import from
+     * @param int $maxAlbums Maximum number of albums to import (0 for no limit)
+     * @param callable|null $progressCallback Callback function for progress updates
+     * @return array Import statistics
+     */
+    public function importAlbumsWithProgress($baseUrl = null, $maxAlbums = 0, $progressCallback = null)
+    {
+        return $this->importAlbums($baseUrl, $maxAlbums, $progressCallback);
+    }
+    
+    /**
      * Import albums and their images from Yupoo
      *
      * @param string|null $baseUrl The base Yupoo URL to import from
      * @param int $maxAlbums Maximum number of albums to import (0 for no limit)
+     * @param callable|null $progressCallback Callback function for progress updates
      * @return array Import statistics
      */
-    public function importAlbums($baseUrl = null, $maxAlbums = 0)
+    public function importAlbums($baseUrl = null, $maxAlbums = 0, $progressCallback = null)
     {
         $startTime = microtime(true);
         $stats = [
@@ -1415,6 +2157,11 @@ class YupooService
             
             $this->log(sprintf("Found %d albums to process", count($albums)));
             
+            // Progress callback for album processing start
+            if ($progressCallback) {
+                $progressCallback('albums', 0, count($albums), 'Starting album processing...');
+            }
+            
             // Process each album
             foreach ($albums as $index => $albumData) {
                 try {
@@ -1425,6 +2172,12 @@ class YupooService
                     }
                     
                     $stats['total_albums']++;
+                    
+                    // Progress callback for current album
+                    if ($progressCallback) {
+                        $progressCallback('albums', $stats['total_albums'], count($albums), 
+                            "Processing: " . ($albumData['title'] ?? 'Untitled Album'));
+                    }
                     
                     // Log the raw album data for debugging
                     $this->log("Raw album data: " . json_encode($albumData, JSON_UNESCAPED_UNICODE), 'debug');
@@ -1486,15 +2239,14 @@ class YupooService
                     }
                     
                     
-                    // Now import images for this album
-                    // Fix URL to prevent duplicate /albums/ in the path
+                    // Now import images for this album using batch processing
                     $albumUrl = preg_replace('|(/albums){2,}|', '/albums', $albumData['url']);
                     $this->log("Processing album URL: $albumUrl", 'debug');
                     
-                    // Get images from the album
+                    // Get images from the album (all pages)
                     $this->log("Fetching images for album: {$albumData['title']}", 'debug');
-                    $albumImages = $this->fetchAlbumImages($albumUrl);
-                    $this->log("Found " . count($albumImages) . " images in album: {$albumData['title']}", 'debug');
+                    $albumImages = $this->fetchAlbumImages($albumUrl, $progressCallback);
+                    $this->log("Found " . count($albumImages) . " images across all pages in album: {$albumData['title']}", 'debug');
                     
                     if (empty($albumImages)) {
                         $this->log("No images found in album: " . $album->title, 'warning');
@@ -1506,54 +2258,96 @@ class YupooService
                         $album->title
                     ));
                     
-                    // Process each image in the album
-                    foreach ($albumImages as $imageData) {
-                        try {
-                            // Check if image already exists
-                            $existingImage = $this->imageModel->where('original_url', $imageData['url'])->first();
-                            
-                            if ($existingImage) {
-                                $this->log("Image already exists, skipping: " . $imageData['url'], 'debug');
-                                $stats['skipped_images']++;
-                                continue;
-                            }
-                            
-                            // Download and save the image first
-                            $savedPath = $this->downloadImage($imageData['url'], $album->id);
-                            
-                            if ($savedPath) {
-                                // Create the image with the saved path
-                                $image = $this->imageModel->create([
-                                    'album_id' => $album->id,
-                                    'title' => $this->cleanImageName($imageData['name'] ?? 'Image ' . uniqid()),
-                                    'image_path' => $savedPath,
-                                    'description' => 'Imported from Yupoo',
-                                    'original_url' => $imageData['url']
-                                ]);
-                                
-                                // If this is the first image, set it as the album cover
-                                if ($album->cover_image === null) {
-                                    $album->update(['cover_image' => $savedPath]);
+                    // Extract image URLs for batch processing with error handling
+                    $imageUrls = [];
+                    try {
+                        $imageUrls = array_map(function($imageData) {
+                            return $imageData['url'] ?? '';
+                        }, $albumImages);
+                        
+                        // Filter out empty URLs
+                        $imageUrls = array_filter($imageUrls, function($url) {
+                            return !empty($url) && is_string($url);
+                        });
+                        
+                    } catch (\Exception $e) {
+                        $this->log("Error extracting image URLs: " . $e->getMessage(), 'warning');
+                        $imageUrls = [];
+                    }
+                    
+                    if (empty($imageUrls)) {
+                        $this->log("No valid image URLs found for album: " . $album->title, 'warning');
+                        continue;
+                    }
+                    
+                    // Filter out duplicate images
+                    $newImageUrls = $this->filterNewImages($imageUrls);
+                    $duplicatesCount = count($imageUrls) - count($newImageUrls);
+                    
+                    if ($duplicatesCount > 0) {
+                        $this->log("Skipping {$duplicatesCount} duplicate images for album: " . $album->title);
+                        $stats['skipped_images'] += $duplicatesCount;
+                    }
+                    
+                    if (empty($newImageUrls)) {
+                        $this->log("No new images to download for album: " . $album->title);
+                        continue;
+                    }
+                    
+                    // Batch download images
+                    $this->log("Starting batch download of " . count($newImageUrls) . " images");
+                    $downloadResults = $this->downloadImagesBatch($newImageUrls, $album->id, $progressCallback);
+                    
+                    // Prepare data for bulk insert
+                    $imageDataForInsert = [];
+                    $successfulDownloads = 0;
+                    $failedDownloads = 0;
+                    
+                    foreach ($downloadResults as $result) {
+                        if ($result['status'] === 'success') {
+                            // Find the original image data to get title/name
+                            $originalImageData = null;
+                            foreach ($albumImages as $img) {
+                                if ($img['url'] === $result['url']) {
+                                    $originalImageData = $img;
+                                    break;
                                 }
-                                
-                                $stats['imported_images']++;
-                                $this->log("Imported image: " . $image->title, 'debug');
-                            } else {
-                                throw new Exception("Failed to download image");
                             }
                             
-                        } catch (\Exception $e) {
-                            $errorMsg = sprintf("Error processing image: %s - %s", 
-                                $imageData['url'] ?? 'unknown', 
-                                $e->getMessage()
+                            $imageDataForInsert[] = [
+                                'url' => $result['url'],
+                                'path' => $result['path'],
+                                'name' => $originalImageData['title'] ?? 'Image ' . uniqid(),
+                                'status' => 'success'
+                            ];
+                            
+                            $successfulDownloads++;
+                        } else {
+                            $errorMsg = sprintf("Failed to download image: %s - %s", 
+                                $result['url'], 
+                                $result['error'] ?? 'Unknown error'
                             );
-                            $this->log($errorMsg, 'error');
+                            $this->log($errorMsg, 'warning');
                             $stats['errors'][] = $errorMsg;
-                            continue;
+                            $failedDownloads++;
+                        }
+                    }
+                    
+                    // Bulk insert successful images
+                    if (!empty($imageDataForInsert)) {
+                        $insertedCount = $this->bulkInsertImages($imageDataForInsert, $album->id);
+                        $stats['imported_images'] += $insertedCount;
+                        
+                        // Set album cover to first successfully imported image
+                        if ($album->cover_image === null && !empty($imageDataForInsert)) {
+                            $album->update(['cover_image' => $imageDataForInsert[0]['path']]);
                         }
                         
-                        // Add a small delay between image downloads to be nice to the server
-                        usleep($this->config['import']['image_download_delay']);
+                        $this->log("Successfully imported {$insertedCount} images for album: " . $album->title);
+                    }
+                    
+                    if ($failedDownloads > 0) {
+                        $this->log("Failed to download {$failedDownloads} images for album: " . $album->title, 'warning');
                     }
                     
                 } catch (\Exception $e) {
