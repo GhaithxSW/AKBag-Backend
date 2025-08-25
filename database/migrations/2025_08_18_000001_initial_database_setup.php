@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         // Create users table
-        if (!Schema::hasTable('users')) {
+        if (! Schema::hasTable('users')) {
             Schema::create('users', function (Blueprint $table) {
                 $table->id();
                 $table->string('name');
@@ -26,7 +26,7 @@ return new class extends Migration
         }
 
         // Create personal_access_tokens table
-        if (!Schema::hasTable('personal_access_tokens')) {
+        if (! Schema::hasTable('personal_access_tokens')) {
             Schema::create('personal_access_tokens', function (Blueprint $table) {
                 $table->id();
                 $table->morphs('tokenable');
@@ -40,7 +40,7 @@ return new class extends Migration
         }
 
         // Create collections table
-        if (!Schema::hasTable('collections')) {
+        if (! Schema::hasTable('collections')) {
             Schema::create('collections', function (Blueprint $table) {
                 $table->id();
                 $table->string('name');
@@ -51,7 +51,7 @@ return new class extends Migration
         }
 
         // Create albums table
-        if (!Schema::hasTable('albums')) {
+        if (! Schema::hasTable('albums')) {
             Schema::create('albums', function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('collection_id')->constrained('collections')->onDelete('cascade');
@@ -64,7 +64,7 @@ return new class extends Migration
         }
 
         // Create images table
-        if (!Schema::hasTable('images')) {
+        if (! Schema::hasTable('images')) {
             Schema::create('images', function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('album_id')->constrained('albums')->onDelete('cascade');

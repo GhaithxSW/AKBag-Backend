@@ -3,7 +3,6 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\AlbumResource\Pages;
-use App\Filament\Resources\AlbumResource\RelationManagers;
 use App\Filament\Resources\ImagesResource\RelationManagers\ImagesRelationManager;
 use App\Models\Album;
 use Filament\Forms;
@@ -11,8 +10,6 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class AlbumResource extends Resource
 {
@@ -32,7 +29,7 @@ class AlbumResource extends Resource
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
                 Forms\Components\FileUpload::make('cover_image')
-                    ->image()
+                    ->image(),
             ]);
     }
 

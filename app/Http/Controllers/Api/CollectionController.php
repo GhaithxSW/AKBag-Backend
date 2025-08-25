@@ -3,27 +3,34 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\PaginatedRequest;
+use App\Http\Resources\AlbumResource;
+use App\Http\Resources\CollectionResource;
 use App\Models\Collection;
 use Illuminate\Http\Request;
-use App\Http\Resources\CollectionResource;
-use App\Http\Resources\AlbumResource;
 
 class CollectionController extends Controller
 {
-    public function index()
+    public function index(PaginatedRequest $request)
     {
-        return CollectionResource::collection(Collection::all());
+        $collections = Collection::orderBy(
+            $request->getSortColumn(),
+            $request->getSortOrder()
+        )->paginate($request->getPerPage());
+
+        return CollectionResource::collection($collections);
     }
 
     public function show($id)
     {
         $collection = Collection::with('albums')->findOrFail($id);
+
         return new CollectionResource($collection);
     }
 
     public function store(Request $request)
     {
-        if (!$request->user() || !$request->user()->is_admin) {
+        if (! $request->user() || ! $request->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
         $data = $request->validate([
@@ -31,12 +38,13 @@ class CollectionController extends Controller
             'description' => 'nullable|string',
         ]);
         $collection = Collection::create($data);
+
         return new CollectionResource($collection);
     }
 
     public function update(Request $request, $id)
     {
-        if (!$request->user() || !$request->user()->is_admin) {
+        if (! $request->user() || ! $request->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
         $collection = Collection::findOrFail($id);
@@ -45,29 +53,39 @@ class CollectionController extends Controller
             'description' => 'nullable|string',
         ]);
         $collection->update($data);
+
         return new CollectionResource($collection);
     }
 
     public function destroy($id)
     {
-        if (!request()->user() || !request()->user()->is_admin) {
+        if (! request()->user() || ! request()->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
         $collection = Collection::findOrFail($id);
         $collection->delete();
+
         return response()->json(null, 204);
     }
 
-    public function albums($id)
+    public function albums($id, PaginatedRequest $request)
     {
-        $collection = Collection::with('albums')->findOrFail($id);
-        return AlbumResource::collection($collection->albums);
+        $collection = Collection::findOrFail($id);
+        $albums = $collection->albums()
+            ->orderBy(
+                $request->getSortColumn(),
+                $request->getSortOrder()
+            )
+            ->paginate($request->getPerPage());
+
+        return AlbumResource::collection($albums);
     }
 
     public function albumInCollection($collectionId, $albumId)
     {
         $collection = Collection::findOrFail($collectionId);
         $album = $collection->albums()->with('images')->findOrFail($albumId);
+
         return new AlbumResource($album);
     }
 }

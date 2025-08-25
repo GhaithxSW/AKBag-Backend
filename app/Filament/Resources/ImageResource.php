@@ -3,24 +3,21 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ImageResource\Pages;
-use App\Filament\Resources\ImageResource\RelationManagers;
 use App\Models\Image;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class ImageResource extends Resource
 {
     protected static ?string $model = Image::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';
-    
+
     protected static ?string $navigationGroup = 'Content';
-    
+
     protected static ?string $modelLabel = 'Image';
 
     public static function form(Form $form): Form

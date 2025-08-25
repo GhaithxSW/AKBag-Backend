@@ -17,11 +17,11 @@ return new class extends Migration
                 // Drop unique index first if it exists
                 $sm = Schema::getConnection()->getDoctrineSchemaManager();
                 $indexes = $sm->listTableIndexes('albums');
-                
+
                 if (isset($indexes['albums_slug_unique'])) {
                     $table->dropUnique('albums_slug_unique');
                 }
-                
+
                 $table->dropColumn('slug');
             }
 

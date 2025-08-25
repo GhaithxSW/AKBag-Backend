@@ -23,6 +23,7 @@ class AuthController extends Controller
             'password' => Hash::make($data['password']),
         ]);
         $token = $user->createToken('api_token')->plainTextToken;
+
         return response()->json(['user' => $user, 'token' => $token], 201);
     }
 
@@ -39,12 +40,14 @@ class AuthController extends Controller
             ]);
         }
         $token = $user->createToken('api_token')->plainTextToken;
+
         return response()->json(['user' => $user, 'token' => $token]);
     }
 
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
+
         return response()->json(['message' => 'Logged out']);
     }
 }

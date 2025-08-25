@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Collection;
+use Illuminate\Database\Seeder;
 
 class CollectionSeeder extends Seeder
 {
@@ -11,15 +11,15 @@ class CollectionSeeder extends Seeder
     {
         Collection::create([
             'name' => 'Nature',
-            'description' => 'Beautiful landscapes and nature scenes.'
+            'description' => 'Beautiful landscapes and nature scenes.',
         ]);
         Collection::create([
             'name' => 'Urban',
-            'description' => 'City life and architecture.'
+            'description' => 'City life and architecture.',
         ]);
         Collection::create([
             'name' => 'Abstract',
-            'description' => 'Abstract art and patterns.'
+            'description' => 'Abstract art and patterns.',
         ]);
     }
 }

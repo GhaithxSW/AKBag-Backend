@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
 use App\Services\YupooService;
+use Illuminate\Support\ServiceProvider;
 
 class YupooServiceProvider extends ServiceProvider
 {
@@ -19,7 +19,7 @@ class YupooServiceProvider extends ServiceProvider
 
         // Register the YupooService in the service container
         $this->app->singleton(YupooService::class, function ($app) {
-            return new YupooService();
+            return new YupooService;
         });
 
         // Register an alias for easier access

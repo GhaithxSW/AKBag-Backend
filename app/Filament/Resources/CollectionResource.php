@@ -2,17 +2,14 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\CollectionResource\Pages;
-use App\Filament\Resources\CollectionResource\RelationManagers;
 use App\Filament\Resources\AlbumsResource\RelationManagers\AlbumsRelationManager;
+use App\Filament\Resources\CollectionResource\Pages;
 use App\Models\Collection;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class CollectionResource extends Resource
 {

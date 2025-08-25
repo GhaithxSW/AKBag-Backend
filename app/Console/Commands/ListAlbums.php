@@ -27,12 +27,13 @@ class ListAlbums extends Command
     public function handle()
     {
         $albums = Album::withCount('images')->get();
-        
+
         if ($albums->isEmpty()) {
             $this->info('No albums found in the database.');
+
             return 0;
         }
-        
+
         $this->info('Albums in the database:');
         $this->table(
             ['ID', 'Title', 'Description', 'Image Count', 'Created At', 'Updated At'],
@@ -40,14 +41,14 @@ class ListAlbums extends Command
                 return [
                     'id' => $album->id,
                     'title' => $album->title,
-                    'description' => $album->description ? substr($album->description, 0, 50) . '...' : 'N/A',
+                    'description' => $album->description ? substr($album->description, 0, 50).'...' : 'N/A',
                     'images_count' => $album->images_count,
                     'created_at' => $album->created_at->format('Y-m-d H:i:s'),
                     'updated_at' => $album->updated_at->format('Y-m-d H:i:s'),
                 ];
             })
         );
-        
+
         return 0;
     }
 }

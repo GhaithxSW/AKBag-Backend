@@ -3,7 +3,9 @@
     "allow": [
       "Bash(php artisan make:migration:*)",
       "Bash(php artisan yupoo:import:*)",
-      "Bash(php artisan:*)"
+      "Bash(php artisan:*)",
+      "Bash(curl:*)",
+      "Bash(./vendor/bin/pint)"
     ],
     "deny": [],
     "ask": []

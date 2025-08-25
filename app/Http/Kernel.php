@@ -9,8 +9,6 @@ class Kernel extends HttpKernel
 {
     /**
      * The bootstrappers for the application.
-     *
-     * @var array
      */
     protected array $bootstrappers = [
         \Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
@@ -24,8 +22,6 @@ class Kernel extends HttpKernel
 
     /**
      * The application's middleware stack.
-     *
-     * @var array
      */
     protected array $middleware = [
         \Illuminate\Http\Middleware\TrustProxies::class,
@@ -38,8 +34,6 @@ class Kernel extends HttpKernel
 
     /**
      * The application's route middleware groups.
-     *
-     * @var array
      */
     protected array $middlewareGroups = [
         'web' => [
@@ -53,15 +47,13 @@ class Kernel extends HttpKernel
 
         'api' => [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-            \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
+            \Illuminate\Routing\Middleware\ThrottleRequests::class.':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
 
     /**
      * The application's route middleware.
-     *
-     * @var array
      */
     protected array $routeMiddleware = [
         'auth' => \App\Http\Middleware\Authenticate::class,

@@ -27,12 +27,13 @@ class ListImages extends Command
     public function handle()
     {
         $images = Image::with('album')->get();
-        
+
         if ($images->isEmpty()) {
             $this->info('No images found in the database.');
+
             return 0;
         }
-        
+
         $this->info('Images in the database:');
         $this->table(
             ['ID', 'Title', 'Album', 'URL', 'Created At'],
@@ -41,12 +42,12 @@ class ListImages extends Command
                     'id' => $image->id,
                     'title' => $image->title,
                     'album' => $image->album ? $image->album->title : 'N/A',
-                    'url' => $image->url ? substr($image->url, 0, 30) . '...' : 'N/A',
+                    'url' => $image->url ? substr($image->url, 0, 30).'...' : 'N/A',
                     'created_at' => $image->created_at->format('Y-m-d H:i:s'),
                 ];
             })
         );
-        
+
         return 0;
     }
 }

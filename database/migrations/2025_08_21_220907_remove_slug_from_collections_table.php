@@ -26,7 +26,7 @@ return new class extends Migration
     {
         Schema::table('collections', function (Blueprint $table) {
             // Only add slug column if it doesn't exist
-            if (!Schema::hasColumn('collections', 'slug')) {
+            if (! Schema::hasColumn('collections', 'slug')) {
                 $table->string('slug')->unique()->after('description');
             }
         });
