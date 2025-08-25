@@ -15,15 +15,19 @@ class AlbumResource extends Resource
 {
     protected static ?string $model = Album::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-photo';
+
+    protected static ?string $navigationGroup = 'Content Management';
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('collection_id')
+                Forms\Components\Select::make('collection_id')
+                    ->relationship('collection', 'name')
                     ->required()
-                    ->numeric(),
+                    ->searchable()
+                    ->preload(),
                 Forms\Components\TextInput::make('title')
                     ->required(),
                 Forms\Components\Textarea::make('description')
@@ -37,8 +41,8 @@ class AlbumResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('collection_id')
-                    ->numeric()
+                Tables\Columns\TextColumn::make('collection.name')
+                    ->label('Collection')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('title')
                     ->searchable(),
@@ -52,7 +56,8 @@ class AlbumResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('collection')
+                    ->relationship('collection', 'name'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

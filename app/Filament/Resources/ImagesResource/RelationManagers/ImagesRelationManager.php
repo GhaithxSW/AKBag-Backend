@@ -44,7 +44,7 @@ class ImagesRelationManager extends RelationManager
                 //
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make(),
+                // Removed create action as per requirements
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

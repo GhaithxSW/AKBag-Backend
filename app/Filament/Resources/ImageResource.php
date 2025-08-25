@@ -16,7 +16,7 @@ class ImageResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
-    protected static ?string $navigationGroup = 'Content';
+    protected static ?string $navigationGroup = 'Content Management';
 
     protected static ?string $modelLabel = 'Image';
 
@@ -66,7 +66,8 @@ class ImageResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('album')
+                    ->relationship('album', 'title'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
