@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(php artisan make:migration:*)",
-      "Bash(php artisan yupoo:import:*)"
+      "Bash(php artisan yupoo:import:*)",
+      "Bash(composer require:*)"
     ],
     "deny": [],
     "ask": []

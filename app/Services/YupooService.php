@@ -1277,16 +1277,16 @@ class YupooService
             $fullPath = 'app/public/' . $relativePath;
             
             // Skip if already exists (use public disk)
-            if (Storage::disk('public')->exists($relativePath)) {
+            if (Storage::disk('s3')->exists($relativePath)) {
                 $this->log("Skipping existing image: {$filename}");
-                return $relativePath; // Return path relative to the public disk
+                return $relativePath; // Return path relative to the S3 disk
             }
             
             $this->log("Downloading image: {$imageUrl}");
             
             // Ensure directory exists on the public disk
             if (!Storage::disk('public')->exists($directory)) {
-                Storage::disk('public')->makeDirectory($directory, 0755, true);
+                // Note: S3 doesn't require directory creation;
             }
             
             // Download the image with retry logic
@@ -1356,25 +1356,25 @@ class YupooService
                     }
                     
                     // Log storage paths for debugging
-                    $this->log("Saving image to storage path (public disk): {$relativePath}", 'debug');
-                    $this->log("Full storage path: " . storage_path('app/public/' . $relativePath), 'debug');
+                    $this->log("Saving image to S3: {$relativePath}", 'debug');
+                    $this->log("Full storage path: S3: {$relativePath}", 'debug');
                     
-                    // Save the image to the public disk
-                    $saved = Storage::disk('public')->put($relativePath, $image);
+                    // Save the image to S3
+                    $saved = Storage::disk('s3')->put($relativePath, $image);
                     
                     if (!$saved) {
-                        $this->log("Failed to save image to storage. Check permissions for: " . storage_path('app/public/' . $directory), 'error');
-                        throw new Exception('Failed to save image to storage');
+                        $this->log("Failed to save image to S3 storage", 'error');
+                        throw new Exception('Failed to save image to S3 storage');
                     }
                     
                     // Verify the file was actually written
-                    if (!Storage::disk('public')->exists($relativePath)) {
-                        $this->log("File verification failed. File does not exist at: " . storage_path('app/public/' . $relativePath), 'error');
-                        throw new Exception('File was not saved correctly');
+                    if (!Storage::disk('s3')->exists($relativePath)) {
+                        $this->log("File verification failed. File does not exist in S3: {$relativePath}", 'error');
+                        throw new Exception('File was not saved correctly to S3');
                     }
                     
-                    $fileSize = Storage::disk('public')->size($relativePath);
-                    $this->log("Successfully saved image: {$filename} (Size: {$fileSize} bytes)", 'debug');
+                    $fileSize = Storage::disk('s3')->size($relativePath);
+                    $this->log("Successfully saved image to S3: {$filename} (Size: {$fileSize} bytes)", 'debug');
                     
                     // Return the relative path expected by Filament components
                     return $relativePath;
@@ -1933,25 +1933,25 @@ class YupooService
             $relativePath = $directory . '/' . $filename;
             
             // Skip if already exists
-            if (Storage::disk('public')->exists($relativePath)) {
+            if (Storage::disk('s3')->exists($relativePath)) {
                 return $relativePath;
             }
             
             // Ensure directory exists
             if (!Storage::disk('public')->exists($directory)) {
-                Storage::disk('public')->makeDirectory($directory, 0755, true);
+                // Note: S3 doesn't require directory creation;
             }
             
             // Save the image
-            $saved = Storage::disk('public')->put($relativePath, $imageData);
+            $saved = Storage::disk('s3')->put($relativePath, $imageData);
             
             if (!$saved) {
-                throw new \Exception('Failed to save image to storage');
+                throw new \Exception('Failed to save image to S3 storage');
             }
             
             // Verify the file was saved
-            if (!Storage::disk('public')->exists($relativePath)) {
-                throw new \Exception('File was not saved correctly');
+            if (!Storage::disk('s3')->exists($relativePath)) {
+                throw new \Exception('File was not saved correctly to S3');
             }
             
             return $relativePath;
