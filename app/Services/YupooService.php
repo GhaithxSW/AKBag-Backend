@@ -1068,9 +1068,11 @@ class YupooService
                             // Check for duplicate URLs via map
                             if (!isset($addedMap[$url])) {
                                 $this->log("Adding new image URL: $url", 'debug');
+                                $imageIndex = count($images) + 1;
+                                $imageName = $this->extractImageNameFromUrl($url) ?? 'Image ' . str_pad($imageIndex, 3, '0', STR_PAD_LEFT);
                                 $images[] = [
                                     'url' => $url,
-                                    'title' => 'Imported from Yupoo',
+                                    'title' => $imageName,
                                 ];
                                 $addedMap[$url] = true;
                             } else {
@@ -1195,7 +1197,9 @@ class YupooService
                                     return;
                                 }
                                 
-                                $title = $this->cleanImageName($node->attr('alt') ?: 'Imported from Yupoo');
+                                // Use new intelligent title extraction
+                                $imageIndex = count($foundImages) + 1;
+                                $title = $this->generateMeaningfulImageName($node, $src, $imageIndex);
                                 
                                 $foundImages[] = [
                                     'url' => $src,
@@ -1980,7 +1984,7 @@ class YupooService
                         'album_id' => $albumId,
                         'title' => $this->cleanImageName($image['name'] ?? 'Image ' . uniqid()),
                         'image_path' => $image['path'],
-                        'description' => 'Imported from Yupoo',
+                        'description' => null,
                         'original_url' => $image['url'],
                         'created_at' => now(),
                         'updated_at' => now(),
@@ -2219,8 +2223,8 @@ class YupooService
                         $collection = $this->collectionModel->first();
                         if (!$collection) {
                             $collection = $this->collectionModel->create([
-                                'name' => 'Imported from Yupoo',
-                                'description' => 'Automatically created collection for Yupoo imports'
+                                'name' => 'Default Collection',
+                                'description' => 'Automatically created collection for imported albums'
                             ]);
                             $this->log("Created default collection: " . $collection->name, 'info');
                         }
@@ -2229,7 +2233,7 @@ class YupooService
                         $album = $this->albumModel->create([
                             'collection_id' => $collection->id,
                             'title' => $albumName,
-                            'description' => 'Imported from Yupoo',
+                            'description' => null,
                             'cover_image' => null // Will be set after importing images
                         ]);
                         
@@ -2314,10 +2318,16 @@ class YupooService
                                 }
                             }
                             
+                            // Generate meaningful name if not found in original data
+                            $imageName = $originalImageData['title'] ?? null;
+                            if (empty($imageName) || $imageName === 'Imported from Yupoo') {
+                                $imageName = $this->extractImageNameFromUrl($result['url']) ?? 'Image ' . str_pad($successfulDownloads + 1, 3, '0', STR_PAD_LEFT);
+                            }
+                            
                             $imageDataForInsert[] = [
                                 'url' => $result['url'],
                                 'path' => $result['path'],
-                                'name' => $originalImageData['title'] ?? 'Image ' . uniqid(),
+                                'name' => $imageName,
                                 'status' => 'success'
                             ];
                             
@@ -2471,9 +2481,10 @@ class YupooService
             // First, try direct keys
             foreach ($directKeys as $key) {
                 if (isset($jsonData[$key]) && is_string($jsonData[$key])) {
+                    $imageName = $jsonData['title'] ?? $this->extractImageNameFromUrl($jsonData[$key]) ?? 'Image';
                     $this->processImageItem([
                         'url' => $jsonData[$key],
-                        'title' => $jsonData['title'] ?? 'Imported from Yupoo'
+                        'title' => $imageName
                     ], $images);
                 }
             }
@@ -2535,9 +2546,10 @@ class YupooService
         try {
             if (is_string($item)) {
                 // If the item is a string, treat it as a URL
+                $imageName = $this->extractImageNameFromUrl($item) ?? 'Image';
                 $this->addImageIfValid([
                     'url' => $item,
-                    'title' => 'Imported from Yupoo'
+                    'title' => $imageName
                 ], $images);
                 return;
             }
@@ -2554,7 +2566,7 @@ class YupooService
             
             // Extract URL and title
             $imageUrl = null;
-            $title = $item['title'] ?? 'Imported from Yupoo';
+            $title = $item['title'] ?? null;
             
             // Try different possible URL fields
             $urlFields = [
@@ -2573,6 +2585,11 @@ class YupooService
             
             // If we found a URL, clean it up and add it to the images array
             if ($imageUrl) {
+                // Generate meaningful title if not provided
+                if (empty($title)) {
+                    $title = $this->extractImageNameFromUrl($imageUrl) ?? 'Image';
+                }
+                
                 $this->addImageIfValid([
                     'url' => $imageUrl,
                     'title' => $title,
@@ -2623,9 +2640,10 @@ class YupooService
                 elseif (is_string($value) && (strpos($value, 'http') === 0 || strpos($value, '//') === 0)) {
                     $ext = strtolower(pathinfo(parse_url($value, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
                     if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])) {
+                        $imageName = $this->extractImageNameFromUrl($value) ?? ucfirst($key) ?? 'Image';
                         $this->addImageIfValid([
                             'url' => $value,
-                            'title' => 'Imported from Yupoo',
+                            'title' => $imageName,
                             'alt' => $key
                         ], $images);
                     }
@@ -2643,7 +2661,7 @@ class YupooService
     protected function addImageIfValid($imageData, &$images)
     {
         $imageUrl = $imageData['url'] ?? '';
-        $title = $imageData['title'] ?? 'Imported from Yupoo';
+        $title = $imageData['title'] ?? $this->extractImageNameFromUrl($imageUrl) ?? 'Image';
         
         // Clean up the URL
         $imageUrl = trim($imageUrl);
@@ -2705,6 +2723,127 @@ class YupooService
         // Clean up extra spaces and title case
         $name = preg_replace('/\s+/', ' ', $name);
         return ucwords(trim($name));
+    }
+    
+    /**
+     * Extract a meaningful image name from URL
+     *
+     * @param string $url Image URL
+     * @return string|null Extracted name or null if not extractable
+     */
+    protected function extractImageNameFromUrl($url)
+    {
+        if (empty($url)) {
+            return null;
+        }
+        
+        // Parse URL to get the path
+        $path = parse_url($url, PHP_URL_PATH);
+        if (empty($path)) {
+            return null;
+        }
+        
+        // Get filename without extension
+        $filename = pathinfo($path, PATHINFO_FILENAME);
+        
+        // Skip if it's just a hash or meaningless ID
+        if (preg_match('/^[a-f0-9]{8,}$/i', $filename) || 
+            preg_match('/^(img|image|photo|pic)_?\d*$/i', $filename) ||
+            strlen($filename) < 3) {
+            return null;
+        }
+        
+        // Clean up common Yupoo patterns
+        $filename = preg_replace('/^(\d+)_[a-z0-9]+$/i', '$1', $filename);
+        $filename = preg_replace('/_[a-z]$/', '', $filename);
+        
+        // Convert to readable format
+        $name = str_replace(['_', '-', '.'], ' ', $filename);
+        $name = preg_replace('/\s+/', ' ', $name);
+        $name = trim($name);
+        
+        // Skip if still looks like a hash or ID
+        if (preg_match('/^\d{8,}$/', str_replace(' ', '', $name))) {
+            return null;
+        }
+        
+        return ucwords($name);
+    }
+    
+    /**
+     * Extract image name from HTML context around the image element
+     *
+     * @param Crawler $node Image node
+     * @return string|null Extracted name or null if not found
+     */
+    protected function extractImageNameFromContext($node)
+    {
+        try {
+            // Try alt text first (most reliable)
+            $alt = $node->attr('alt');
+            if (!empty($alt) && !preg_match('/^\d+$/', $alt) && !preg_match('/^(img|image|photo|pic)/i', $alt)) {
+                return $this->cleanImageName($alt);
+            }
+            
+            // Try title attribute
+            $title = $node->attr('title');
+            if (!empty($title) && !preg_match('/^\d+$/', $title) && !preg_match('/^(img|image|photo|pic)/i', $title)) {
+                return $this->cleanImageName($title);
+            }
+            
+            // Try to find text in parent elements
+            $parent = $node;
+            for ($i = 0; $i < 3; $i++) {
+                try {
+                    $parent = $parent->parents()->first();
+                    if ($parent->count() === 0) break;
+                    
+                    // Look for text in specific elements
+                    $textElements = $parent->filter('h1, h2, h3, h4, h5, h6, .title, .name, .caption, p');
+                    if ($textElements->count() > 0) {
+                        $text = trim($textElements->first()->text());
+                        if (!empty($text) && strlen($text) > 3 && strlen($text) < 100) {
+                            // Skip if it looks like generic text
+                            if (!preg_match('/^(image|photo|picture|img)/i', $text)) {
+                                return $this->cleanImageName($text);
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    break;
+                }
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+    
+    /**
+     * Generate a meaningful image name using multiple strategies
+     *
+     * @param Crawler $node Image node
+     * @param string $imageUrl Image URL
+     * @param int $index Image index in album for fallback
+     * @return string Generated name
+     */
+    protected function generateMeaningfulImageName($node, $imageUrl, $index = 1)
+    {
+        // Strategy 1: Extract from HTML context
+        $nameFromContext = $this->extractImageNameFromContext($node);
+        if (!empty($nameFromContext)) {
+            return $nameFromContext;
+        }
+        
+        // Strategy 2: Extract from URL
+        $nameFromUrl = $this->extractImageNameFromUrl($imageUrl);
+        if (!empty($nameFromUrl)) {
+            return $nameFromUrl;
+        }
+        
+        // Strategy 3: Use generic but meaningful name with index
+        return "Image " . str_pad($index, 3, '0', STR_PAD_LEFT);
     }
     
     /**
