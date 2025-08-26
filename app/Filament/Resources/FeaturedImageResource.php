@@ -44,9 +44,8 @@ class FeaturedImageResource extends Resource
                 Forms\Components\FileUpload::make('image_path')
                     ->label('Image')
                     ->image()
-                    ->disk('local')
-                    ->visibility('public')
-                    ->directory('public/featured')
+                    ->disk('public')
+                    ->directory('featured')
                     ->required()
                     ->columnSpanFull(),
 
@@ -65,7 +64,7 @@ class FeaturedImageResource extends Resource
             ->columns([
                 Tables\Columns\ImageColumn::make('image_path')
                     ->label('Thumbnail')
-                    ->disk('local')
+                    ->disk('public')
                     ->square()
                     ->size(50),
 

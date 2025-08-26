@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class FeaturedImage extends Model
 {
@@ -20,7 +21,7 @@ class FeaturedImage extends Model
 
     public function getImageUrlAttribute()
     {
-        return $this->image_path ? asset('storage/'.str_replace('public/', '', $this->image_path)) : null;
+        return $this->image_path ? Storage::disk('public')->url($this->image_path) : null;
     }
 
     public static function getActiveImages()
