@@ -1,0 +1,42 @@
+meta {
+  name: Create Featured Image
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/featured-images
+  body: multipartForm
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:multipart-form {
+  title: New Featured Image
+  position: 1
+  description: Optional description text
+  is_active: true
+  image_path: @file(C:\path\to\your\image.jpg)
+}
+
+docs {
+  # Create Featured Image
+  
+  Creates a new featured image. **Admin authentication required.**
+  
+  ## Request Body (multipart/form-data)
+  - `title` (required): Title of the featured image
+  - `position` (required): Position 1-4, must be unique
+  - `image_path` (required): Image file (jpg, png, gif, etc.)
+  - `description` (optional): Description text
+  - `is_active` (optional): Boolean, defaults to true
+  
+  ## Authentication
+  Requires Bearer token with admin privileges.
+  
+  ## Response
+  Returns the created featured image object.
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Get Featured Image
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/featured-images/{{featuredImageId}}
+  body: none
+  auth: none
+}
+
+vars:pre-request {
+  featuredImageId: 1
+}
+
+docs {
+  # Get Single Featured Image
+  
+  Returns a specific featured image by ID.
+  
+  **Public endpoint** - No authentication required.
+  
+  ## Response
+  ```json
+  {
+    "id": 1,
+    "title": "Featured Item 1",
+    "description": "Optional description",
+    "position": 1,
+    "image_url": "https://domain.com/storage/featured/image.jpg",
+    "is_active": true,
+    "created_at": "2025-08-26T01:04:15.000000Z",
+    "updated_at": "2025-08-26T01:48:21.000000Z"
+  }
+  ```
+}

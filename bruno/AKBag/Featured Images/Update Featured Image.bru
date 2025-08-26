@@ -1,0 +1,47 @@
+meta {
+  name: Update Featured Image
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/featured-images/{{featuredImageId}}
+  body: multipartForm
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+vars:pre-request {
+  featuredImageId: 1
+}
+
+body:multipart-form {
+  title: Updated Featured Image Title
+  position: 1
+  description: Updated description
+  is_active: true
+  image_path: @file(C:\path\to\updated\image.jpg)
+}
+
+docs {
+  # Update Featured Image
+  
+  Updates an existing featured image. **Admin authentication required.**
+  
+  ## Request Body (multipart/form-data)
+  All fields are optional for updates:
+  - `title`: New title
+  - `position`: New position (1-4), must be unique
+  - `image_path`: New image file (replaces existing)
+  - `description`: New description
+  - `is_active`: Boolean status
+  
+  ## Authentication
+  Requires Bearer token with admin privileges.
+  
+  ## Response
+  Returns the updated featured image object.
+}

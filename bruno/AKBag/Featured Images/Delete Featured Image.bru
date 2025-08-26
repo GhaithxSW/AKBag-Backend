@@ -1,0 +1,36 @@
+meta {
+  name: Delete Featured Image
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/api/featured-images/{{featuredImageId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+vars:pre-request {
+  featuredImageId: 1
+}
+
+docs {
+  # Delete Featured Image
+  
+  Deletes a featured image and its associated file. **Admin authentication required.**
+  
+  ## Authentication
+  Requires Bearer token with admin privileges.
+  
+  ## Response
+  Returns 204 No Content on successful deletion.
+  
+  ## Notes
+  - This action is irreversible
+  - The image file is permanently deleted from storage
+  - Position becomes available for new featured images
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Get All Featured Images
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/featured-images
+  body: none
+  auth: none
+}
+
+docs {
+  # Get All Featured Images
+  
+  Returns all active featured images ordered by position (1-4).
+  
+  **Public endpoint** - No authentication required.
+  
+  ## Response
+  ```json
+  {
+    "data": [
+      {
+        "id": 1,
+        "title": "Featured Item 1",
+        "description": "Optional description",
+        "position": 1,
+        "image_url": "https://domain.com/storage/featured/image.jpg",
+        "is_active": true,
+        "created_at": "2025-08-26T01:04:15.000000Z",
+        "updated_at": "2025-08-26T01:48:21.000000Z"
+      }
+    ]
+  }
+  ```
+}
