@@ -62,7 +62,16 @@ class CollectionController extends Controller
         if (! request()->user() || ! request()->user()->is_admin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
+
         $collection = Collection::findOrFail($id);
+
+        if (! $collection->canBeDeleted()) {
+            return response()->json([
+                'message' => 'Cannot delete collection',
+                'reason' => $collection->getDeletionBlockReason(),
+            ], 422);
+        }
+
         $collection->delete();
 
         return response()->json(null, 204);

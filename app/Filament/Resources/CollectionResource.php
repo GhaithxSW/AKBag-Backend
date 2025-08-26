@@ -37,7 +37,11 @@ class CollectionResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
-                // Slug column removed as per requirements
+                Tables\Columns\TextColumn::make('albums_count')
+                    ->label('Albums')
+                    ->counts('albums')
+                    ->badge()
+                    ->color('primary'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -52,10 +56,72 @@ class CollectionResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->requiresConfirmation()
+                    ->modalHeading('Delete Collection')
+                    ->modalDescription(fn (Collection $record): string => $record->canBeDeleted()
+                            ? 'Are you sure you want to delete this collection?'
+                            : $record->getDeletionBlockReason()
+                    )
+                    ->modalSubmitActionLabel('Delete')
+                    ->action(function (Tables\Actions\DeleteAction $action, Collection $record) {
+                        if (! $record->canBeDeleted()) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Cannot Delete Collection')
+                                ->body($record->getDeletionBlockReason())
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $record->delete();
+
+                        \Filament\Notifications\Notification::make()
+                            ->title('Collection Deleted')
+                            ->body('The collection has been deleted successfully.')
+                            ->success()
+                            ->send();
+                    })
+                    ->disabled(fn (Collection $record): bool => ! $record->canBeDeleted())
+                    ->color(fn (Collection $record): string => $record->canBeDeleted() ? 'danger' : 'gray'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->requiresConfirmation()
+                        ->modalHeading('Delete Collections')
+                        ->modalDescription('Are you sure you want to delete the selected collections?')
+                        ->modalSubmitActionLabel('Delete Selected')
+                        ->action(function (Tables\Actions\DeleteBulkAction $action, $records) {
+                            $collectionsWithAlbums = $records->filter(fn ($record) => ! $record->canBeDeleted());
+
+                            if ($collectionsWithAlbums->count() > 0) {
+                                $blockedNames = $collectionsWithAlbums->pluck('name')->join(', ');
+
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Cannot Delete Some Collections')
+                                    ->body("The following collections have albums and cannot be deleted: {$blockedNames}. Remove or reassign all albums first.")
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $deletedCount = 0;
+                            foreach ($records as $record) {
+                                if ($record->canBeDeleted()) {
+                                    $record->delete();
+                                    $deletedCount++;
+                                }
+                            }
+
+                            \Filament\Notifications\Notification::make()
+                                ->title('Collections Deleted')
+                                ->body("{$deletedCount} collection(s) deleted successfully.")
+                                ->success()
+                                ->send();
+                        }),
                 ]),
             ]);
     }
