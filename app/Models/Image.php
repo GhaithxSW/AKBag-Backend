@@ -12,11 +12,6 @@ class Image extends Model
      *
      * @var array<int, string>
      */
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'album_id',
         'title',
