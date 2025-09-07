@@ -12,7 +12,9 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "laravel/ui": "^4.6",
-        "symfony/dom-crawler": "^7.3"
+        "symfony/dom-crawler": "^7.3",
+        "ext-intl": "*",
+        "ext-zip": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
