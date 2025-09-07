@@ -67,8 +67,8 @@ return [
     |
     */
     'storage' => [
-        'covers' => 'yupoo/covers',
-        'images' => 'yupoo/images',
+        'covers' => 'albums/covers',
+        'images' => 'images',
     ],
 
     /*
