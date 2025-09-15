@@ -3,11 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Collection extends Model
 {
     protected $fillable = [
-        'name', 'description',
+        'name', 'description', 'cover_image',
     ];
 
     public function canBeDeleted(): bool
@@ -25,5 +26,13 @@ class Collection extends Model
     public function albums()
     {
         return $this->hasMany(Album::class);
+    }
+
+    /**
+     * Get the cover image URL attribute.
+     */
+    public function getCoverImageUrlAttribute()
+    {
+        return $this->cover_image ? Storage::disk('s3')->url($this->cover_image) : null;
     }
 }

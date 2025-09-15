@@ -27,7 +27,15 @@ class CollectionResource extends Resource
                     ->required(),
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
-                // Slug field removed as per requirements
+                Forms\Components\FileUpload::make('cover_image')
+                    ->image()
+                    ->disk('s3')
+                    ->directory('collections/covers')
+                    ->visibility('public')
+                    ->imageResizeMode('cover')
+                    ->imageCropAspectRatio('16:9')
+                    ->imageResizeTargetWidth('1920')
+                    ->imageResizeTargetHeight('1080'),
             ]);
     }
 
@@ -35,6 +43,11 @@ class CollectionResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('cover_image')
+                    ->disk('s3')
+                    ->width(60)
+                    ->height(40)
+                    ->defaultImageUrl('/images/placeholder-collection.png'),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('albums_count')

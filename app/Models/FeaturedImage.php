@@ -21,7 +21,7 @@ class FeaturedImage extends Model
 
     public function getImageUrlAttribute()
     {
-        return $this->image_path ? Storage::disk('public')->url($this->image_path) : null;
+        return $this->image_path ? Storage::disk('s3')->url($this->image_path) : null;
     }
 
     public static function getActiveImages()

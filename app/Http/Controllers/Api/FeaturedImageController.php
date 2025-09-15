@@ -38,7 +38,7 @@ class FeaturedImageController extends Controller
         ]);
 
         if ($request->hasFile('image_path')) {
-            $data['image_path'] = $request->file('image_path')->store('featured', 'public');
+            $data['image_path'] = $request->file('image_path')->store('featured', 's3');
         }
 
         $featuredImage = FeaturedImage::create($data);
@@ -64,9 +64,9 @@ class FeaturedImageController extends Controller
 
         if ($request->hasFile('image_path')) {
             if ($featuredImage->image_path) {
-                \Storage::disk('public')->delete($featuredImage->image_path);
+                \Storage::disk('s3')->delete($featuredImage->image_path);
             }
-            $data['image_path'] = $request->file('image_path')->store('featured', 'public');
+            $data['image_path'] = $request->file('image_path')->store('featured', 's3');
         }
 
         $featuredImage->update($data);
@@ -83,7 +83,7 @@ class FeaturedImageController extends Controller
         $featuredImage = FeaturedImage::findOrFail($id);
 
         if ($featuredImage->image_path) {
-            \Storage::disk('public')->delete($featuredImage->image_path);
+            \Storage::disk('s3')->delete($featuredImage->image_path);
         }
 
         $featuredImage->delete();

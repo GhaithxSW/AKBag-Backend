@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Album extends Model
 {
@@ -18,5 +19,13 @@ class Album extends Model
     public function images()
     {
         return $this->hasMany(Image::class);
+    }
+
+    /**
+     * Get the cover image URL attribute.
+     */
+    public function getCoverImageUrlAttribute()
+    {
+        return $this->cover_image ? Storage::disk('s3')->url($this->cover_image) : null;
     }
 }

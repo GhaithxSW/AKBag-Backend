@@ -1301,7 +1301,7 @@ class YupooService
             $fullPath = 'app/public/'.$relativePath;
 
             // Skip if already exists (use public disk)
-            if (Storage::disk('public')->exists($relativePath)) {
+            if (Storage::disk('s3')->exists($relativePath)) {
                 $this->log("Skipping existing image: {$filename}");
 
                 return $relativePath; // Return path relative to the public disk
@@ -1310,8 +1310,8 @@ class YupooService
             $this->log("Downloading image: {$imageUrl}");
 
             // Ensure directory exists on the public disk
-            if (! Storage::disk('public')->exists($directory)) {
-                Storage::disk('public')->makeDirectory($directory, 0755, true);
+            if (! Storage::disk('s3')->exists($directory)) {
+                Storage::disk('s3')->makeDirectory($directory, 0755, true);
             }
 
             // Download the image with retry logic
@@ -1382,23 +1382,43 @@ class YupooService
 
                     // Log storage paths for debugging
                     $this->log("Saving image to storage path (public disk): {$relativePath}", 'debug');
-                    $this->log('Full storage path: '.storage_path('app/public/'.$relativePath), 'debug');
+                    $this->log('Saving to S3 path: '.$relativePath, 'debug');
 
-                    // Save the image to the public disk
-                    $saved = Storage::disk('public')->put($relativePath, $image);
+                    // Save the image to S3 using AWS SDK directly to avoid ACL issues
+                    $s3Client = new \Aws\S3\S3Client([
+                        'version' => 'latest',
+                        'region' => config('filesystems.disks.s3.region'),
+                        'credentials' => [
+                            'key' => config('filesystems.disks.s3.key'),
+                            'secret' => config('filesystems.disks.s3.secret'),
+                        ],
+                    ]);
+                    $bucket = config('filesystems.disks.s3.bucket');
+                    try {
+                        $s3Client->putObject([
+                            'Bucket' => $bucket,
+                            'Key' => $relativePath,
+                            'Body' => $image,
+                            'ContentType' => 'image/jpeg',
+                        ]);
+                        $saved = true;
+                    } catch (\Exception $s3Exception) {
+                        $this->log('S3 direct upload failed: '.$s3Exception->getMessage(), 'error');
+                        $saved = false;
+                    }
 
                     if (! $saved) {
-                        $this->log('Failed to save image to storage. Check permissions for: '.storage_path('app/public/'.$directory), 'error');
+                        $this->log('Failed to save image to S3. Check AWS credentials and bucket permissions.', 'error');
                         throw new Exception('Failed to save image to storage');
                     }
 
                     // Verify the file was actually written
-                    if (! Storage::disk('public')->exists($relativePath)) {
-                        $this->log('File verification failed. File does not exist at: '.storage_path('app/public/'.$relativePath), 'error');
+                    if (! Storage::disk('s3')->exists($relativePath)) {
+                        $this->log('File verification failed. File does not exist in S3: '.$relativePath, 'error');
                         throw new Exception('File was not saved correctly');
                     }
 
-                    $fileSize = Storage::disk('public')->size($relativePath);
+                    $fileSize = Storage::disk('s3')->size($relativePath);
                     $this->log("Successfully saved image: {$filename} (Size: {$fileSize} bytes)", 'debug');
 
                     // Return the relative path expected by Filament components
@@ -1963,24 +1983,43 @@ class YupooService
             $relativePath = $directory.'/'.$filename;
 
             // Skip if already exists
-            if (Storage::disk('public')->exists($relativePath)) {
+            if (Storage::disk('s3')->exists($relativePath)) {
                 return $relativePath;
             }
 
             // Ensure directory exists
-            if (! Storage::disk('public')->exists($directory)) {
-                Storage::disk('public')->makeDirectory($directory, 0755, true);
+            if (! Storage::disk('s3')->exists($directory)) {
+                Storage::disk('s3')->makeDirectory($directory, 0755, true);
             }
 
-            // Save the image
-            $saved = Storage::disk('public')->put($relativePath, $imageData);
+            // Save the image to S3 using AWS SDK directly to avoid ACL issues
+            $s3Client = new \Aws\S3\S3Client([
+                'version' => 'latest',
+                'region' => config('filesystems.disks.s3.region'),
+                'credentials' => [
+                    'key' => config('filesystems.disks.s3.key'),
+                    'secret' => config('filesystems.disks.s3.secret'),
+                ],
+            ]);
+            $bucket = config('filesystems.disks.s3.bucket');
+            try {
+                $s3Client->putObject([
+                    'Bucket' => $bucket,
+                    'Key' => $relativePath,
+                    'Body' => $imageData,
+                    'ContentType' => 'image/jpeg',
+                ]);
+                $saved = true;
+            } catch (\Exception $s3Exception) {
+                throw new \Exception('S3 direct upload failed: '.$s3Exception->getMessage());
+            }
 
             if (! $saved) {
                 throw new \Exception('Failed to save image to storage');
             }
 
             // Verify the file was saved
-            if (! Storage::disk('public')->exists($relativePath)) {
+            if (! Storage::disk('s3')->exists($relativePath)) {
                 throw new \Exception('File was not saved correctly');
             }
 

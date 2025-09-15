@@ -12,9 +12,13 @@ class AlbumResource extends JsonResource
             'id' => $this->id,
             'collection_id' => $this->collection_id,
             'title' => $this->title,
-            'description' => $this->description,
-            'cover_image' => $this->cover_image ? asset('storage/'.$this->cover_image) : null,
+            'cover_image' => $this->cover_image,
+            'cover_image_url' => $this->cover_image_url,
+            'images_count' => $this->when(isset($this->images_count), $this->images_count),
+            'collection' => new CollectionResource($this->whenLoaded('collection')),
             'images' => ImageResource::collection($this->whenLoaded('images')),
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }

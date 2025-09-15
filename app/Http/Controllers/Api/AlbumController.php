@@ -12,14 +12,15 @@ class AlbumController extends Controller
 {
     public function show($id)
     {
-        $album = Album::with('images')->findOrFail($id);
+        $album = Album::with(['images', 'collection'])->findOrFail($id);
 
         return new AlbumResource($album);
     }
 
     public function index(PaginatedRequest $request)
     {
-        $albums = Album::with('images')
+        $albums = Album::with(['images', 'collection'])
+            ->withCount('images')
             ->orderBy(
                 $request->getSortColumn(),
                 $request->getSortOrder()
@@ -41,7 +42,7 @@ class AlbumController extends Controller
             'cover_image' => 'nullable|image',
         ]);
         if ($request->hasFile('cover_image')) {
-            $data['cover_image'] = $request->file('cover_image')->store('albums', 'public');
+            $data['cover_image'] = $request->file('cover_image')->store('albums', 's3');
         }
         $album = Album::create($data);
 
@@ -61,7 +62,7 @@ class AlbumController extends Controller
             'cover_image' => 'nullable|image',
         ]);
         if ($request->hasFile('cover_image')) {
-            $data['cover_image'] = $request->file('cover_image')->store('albums', 'public');
+            $data['cover_image'] = $request->file('cover_image')->store('albums', 's3');
         }
         $album->update($data);
 

@@ -12,7 +12,12 @@ class ImageResource extends JsonResource
             'id' => $this->id,
             'album_id' => $this->album_id,
             'title' => $this->title,
-            'image_url' => $this->image_path ? asset('storage/'.$this->image_path) : null,
+            'image_path' => $this->image_path,
+            'image_url' => $this->image_url,
+            'original_url' => $this->original_url,
+            'album' => new AlbumResource($this->whenLoaded('album')),
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }

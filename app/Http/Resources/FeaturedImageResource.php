@@ -17,7 +17,6 @@ class FeaturedImageResource extends JsonResource
         return [
             'id' => $this->id,
             'title' => $this->title,
-            'description' => $this->description,
             'position' => $this->position,
             'image_url' => $this->image_url,
             'is_active' => $this->is_active,

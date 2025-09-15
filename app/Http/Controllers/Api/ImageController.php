@@ -41,7 +41,7 @@ class ImageController extends Controller
         ]);
 
         if ($request->hasFile('image_path')) {
-            $data['image_path'] = $request->file('image_path')->store('images', 'public');
+            $data['image_path'] = $request->file('image_path')->store('images', 's3');
         }
 
         $image = Image::create($data);
@@ -70,9 +70,9 @@ class ImageController extends Controller
         if ($request->hasFile('image_path')) {
             // Delete old image if exists
             if ($image->image_path) {
-                \Storage::disk('public')->delete($image->image_path);
+                \Storage::disk('s3')->delete($image->image_path);
             }
-            $data['image_path'] = $request->file('image_path')->store('images', 'public');
+            $data['image_path'] = $request->file('image_path')->store('images', 's3');
         }
 
         $image->update($data);

@@ -13,10 +13,12 @@ class CollectionController extends Controller
 {
     public function index(PaginatedRequest $request)
     {
-        $collections = Collection::orderBy(
-            $request->getSortColumn(),
-            $request->getSortOrder()
-        )->paginate($request->getPerPage());
+        $collections = Collection::withCount('albums')
+            ->with('albums')
+            ->orderBy(
+                $request->getSortColumn(),
+                $request->getSortOrder()
+            )->paginate($request->getPerPage());
 
         return CollectionResource::collection($collections);
     }
@@ -36,7 +38,13 @@ class CollectionController extends Controller
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
+
+        if ($request->hasFile('cover_image')) {
+            $data['cover_image'] = $request->file('cover_image')->store('collections/covers', 's3');
+        }
+
         $collection = Collection::create($data);
 
         return new CollectionResource($collection);
@@ -51,7 +59,16 @@ class CollectionController extends Controller
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
+            'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
+
+        if ($request->hasFile('cover_image')) {
+            if ($collection->cover_image) {
+                \Storage::disk('s3')->delete($collection->cover_image);
+            }
+            $data['cover_image'] = $request->file('cover_image')->store('collections/covers', 's3');
+        }
+
         $collection->update($data);
 
         return new CollectionResource($collection);
@@ -81,6 +98,8 @@ class CollectionController extends Controller
     {
         $collection = Collection::findOrFail($id);
         $albums = $collection->albums()
+            ->with(['images', 'collection'])
+            ->withCount('images')
             ->orderBy(
                 $request->getSortColumn(),
                 $request->getSortOrder()

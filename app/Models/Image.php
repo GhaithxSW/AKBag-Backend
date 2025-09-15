@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class Image extends Model
 {
@@ -26,5 +27,13 @@ class Image extends Model
     public function album(): BelongsTo
     {
         return $this->belongsTo(Album::class);
+    }
+
+    /**
+     * Get the image URL attribute.
+     */
+    public function getImageUrlAttribute()
+    {
+        return $this->image_path ? Storage::disk('s3')->url($this->image_path) : null;
     }
 }
