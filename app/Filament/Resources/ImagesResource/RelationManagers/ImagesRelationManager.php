@@ -19,12 +19,13 @@ class ImagesRelationManager extends RelationManager
                 Forms\Components\TextInput::make('title')
                     ->required()
                     ->maxLength(255),
-                Forms\Components\FileUpload::make('file_path')
+                Forms\Components\FileUpload::make('image_path')
                     ->label('Image')
                     ->image()
+                    ->disk('s3')
                     ->directory('images')
-                    ->required()
-                    ->multiple(),
+                    ->visibility('public')
+                    ->required(),
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
             ]);
@@ -35,9 +36,11 @@ class ImagesRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('title')
             ->columns([
-                Tables\Columns\ImageColumn::make('file_path')
+                Tables\Columns\ImageColumn::make('image_path')
                     ->label('Thumbnail')
-                    ->disk('public'),
+                    ->disk('s3')
+                    ->square()
+                    ->size(50),
                 Tables\Columns\TextColumn::make('title'),
             ])
             ->filters([
