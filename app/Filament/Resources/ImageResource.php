@@ -35,8 +35,9 @@ class ImageResource extends Resource
                 Forms\Components\FileUpload::make('image_path')
                     ->label('Image')
                     ->image()
-                    ->disk('public')
+                    ->disk('s3')
                     ->directory('images')
+                    ->visibility('public')
                     ->required()
                     ->columnSpanFull(),
                 Forms\Components\Textarea::make('description')
@@ -50,7 +51,7 @@ class ImageResource extends Resource
             ->columns([
                 Tables\Columns\ImageColumn::make('image_path')
                     ->label('Thumbnail')
-                    ->disk('public')
+                    ->disk('s3')
                     ->square()
                     ->size(50),
                 Tables\Columns\TextColumn::make('title')

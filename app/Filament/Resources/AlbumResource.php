@@ -33,7 +33,11 @@ class AlbumResource extends Resource
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
                 Forms\Components\FileUpload::make('cover_image')
-                    ->image(),
+                    ->label('Cover Image')
+                    ->image()
+                    ->disk('s3')
+                    ->directory('albums/covers')
+                    ->visibility('public'),
             ]);
     }
 
