@@ -30,6 +30,13 @@ class AlbumResource extends Resource
                     ->preload(),
                 Forms\Components\TextInput::make('title')
                     ->required(),
+                Forms\Components\TextInput::make('sort_order')
+                    ->label('Sort Order')
+                    ->numeric()
+                    ->default(999)
+                    ->minValue(0)
+                    ->maxValue(9999)
+                    ->helperText('Lower numbers appear first (0 = highest priority). Bags albums should be 0-10.'),
                 Forms\Components\Textarea::make('description')
                     ->columnSpanFull(),
                 Forms\Components\FileUpload::make('cover_image')
@@ -50,6 +57,15 @@ class AlbumResource extends Resource
                     ->disk('s3')
                     ->size(60)
                     ->defaultImageUrl(url('/images/placeholder.png')),
+                Tables\Columns\TextColumn::make('sort_order')
+                    ->label('Sort Order')
+                    ->sortable()
+                    ->badge()
+                    ->color(fn (int $state): string => match (true) {
+                        $state < 10 => 'success',
+                        $state < 100 => 'warning',
+                        default => 'gray',
+                    }),
                 Tables\Columns\TextColumn::make('collection.name')
                     ->label('Collection')
                     ->sortable(),
@@ -75,7 +91,8 @@ class AlbumResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->defaultSort('sort_order', 'asc');
     }
 
     public static function getRelations(): array

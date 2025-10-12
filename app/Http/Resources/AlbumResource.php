@@ -12,6 +12,7 @@ class AlbumResource extends JsonResource
             'id' => $this->id,
             'collection_id' => $this->collection_id,
             'title' => $this->title,
+            'sort_order' => $this->sort_order,
             'cover_image' => $this->cover_image,
             'cover_image_url' => $this->cover_image_url,
             'images_count' => $this->when(isset($this->images_count), $this->images_count),

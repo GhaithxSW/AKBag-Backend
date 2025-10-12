@@ -118,10 +118,14 @@ class CollectionController extends Controller
             $query->with('images');
         }
 
-        $albums = $query->orderBy(
-            $request->getSortColumn(),
-            $request->getSortOrder()
-        )->paginate($request->getPerPage());
+        // Order by sort_order first (ascending, lower numbers = higher priority)
+        // Then by the requested sort column
+        $albums = $query->orderBy('sort_order', 'asc')
+            ->orderBy(
+                $request->getSortColumn(),
+                $request->getSortOrder()
+            )
+            ->paginate($request->getPerPage());
 
         return AlbumResource::collection($albums);
     }

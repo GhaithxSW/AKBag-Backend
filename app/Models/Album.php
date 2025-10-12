@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Storage;
 class Album extends Model
 {
     protected $fillable = [
-        'collection_id', 'title', 'description', 'cover_image',
+        'collection_id', 'title', 'description', 'cover_image', 'sort_order',
     ];
 
     public function collection()

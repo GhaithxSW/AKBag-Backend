@@ -33,10 +33,14 @@ class AlbumController extends Controller
             $query->with('images');
         }
 
-        $albums = $query->orderBy(
-            $request->getSortColumn(),
-            $request->getSortOrder()
-        )->paginate($request->getPerPage());
+        // Order by sort_order first (ascending, lower numbers = higher priority)
+        // Then by the requested sort column
+        $albums = $query->orderBy('sort_order', 'asc')
+            ->orderBy(
+                $request->getSortColumn(),
+                $request->getSortOrder()
+            )
+            ->paginate($request->getPerPage());
 
         return AlbumResource::collection($albums);
     }
@@ -49,6 +53,7 @@ class AlbumController extends Controller
         $data = $request->validate([
             'collection_id' => 'required|exists:collections,id',
             'title' => 'required|string|max:255',
+            'sort_order' => 'nullable|integer|min:0|max:9999',
             'description' => 'nullable|string',
             'cover_image' => 'nullable|image',
         ]);
@@ -69,6 +74,7 @@ class AlbumController extends Controller
         $data = $request->validate([
             'collection_id' => 'sometimes|required|exists:collections,id',
             'title' => 'sometimes|required|string|max:255',
+            'sort_order' => 'nullable|integer|min:0|max:9999',
             'description' => 'nullable|string',
             'cover_image' => 'nullable|image',
         ]);
