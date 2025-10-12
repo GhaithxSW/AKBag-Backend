@@ -1400,6 +1400,7 @@ class YupooService
                             'Key' => $relativePath,
                             'Body' => $image,
                             'ContentType' => 'image/jpeg',
+                            'ACL' => 'public-read',
                         ]);
                         $saved = true;
                     } catch (\Exception $s3Exception) {

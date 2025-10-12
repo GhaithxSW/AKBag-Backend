@@ -10,22 +10,33 @@ use Illuminate\Http\Request;
 
 class AlbumController extends Controller
 {
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $album = Album::with(['images', 'collection'])->findOrFail($id);
+        $query = Album::withCount('images')->with('collection');
+
+        // Only load images if explicitly requested via ?include=images
+        if ($request->query('include') === 'images') {
+            $query->with('images');
+        }
+
+        $album = $query->findOrFail($id);
 
         return new AlbumResource($album);
     }
 
     public function index(PaginatedRequest $request)
     {
-        $albums = Album::with(['images', 'collection'])
-            ->withCount('images')
-            ->orderBy(
-                $request->getSortColumn(),
-                $request->getSortOrder()
-            )
-            ->paginate($request->getPerPage());
+        $query = Album::withCount('images')->with('collection');
+
+        // Only load images if explicitly requested via ?include=images
+        if ($request->query('include') === 'images') {
+            $query->with('images');
+        }
+
+        $albums = $query->orderBy(
+            $request->getSortColumn(),
+            $request->getSortOrder()
+        )->paginate($request->getPerPage());
 
         return AlbumResource::collection($albums);
     }

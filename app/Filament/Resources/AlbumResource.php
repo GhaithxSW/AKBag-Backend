@@ -45,6 +45,11 @@ class AlbumResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('cover_image')
+                    ->label('Cover')
+                    ->disk('s3')
+                    ->size(60)
+                    ->defaultImageUrl(url('/images/placeholder.png')),
                 Tables\Columns\TextColumn::make('collection.name')
                     ->label('Collection')
                     ->sortable(),

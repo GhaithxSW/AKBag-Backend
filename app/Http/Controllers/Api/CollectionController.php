@@ -13,19 +13,31 @@ class CollectionController extends Controller
 {
     public function index(PaginatedRequest $request)
     {
-        $collections = Collection::withCount('albums')
-            ->with('albums')
-            ->orderBy(
-                $request->getSortColumn(),
-                $request->getSortOrder()
-            )->paginate($request->getPerPage());
+        $query = Collection::withCount('albums');
+
+        // Only load albums if explicitly requested via ?include=albums
+        if ($request->query('include') === 'albums') {
+            $query->with('albums');
+        }
+
+        $collections = $query->orderBy(
+            $request->getSortColumn(),
+            $request->getSortOrder()
+        )->paginate($request->getPerPage());
 
         return CollectionResource::collection($collections);
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $collection = Collection::with('albums')->findOrFail($id);
+        $query = Collection::withCount('albums');
+
+        // Only load albums if explicitly requested via ?include=albums
+        if ($request->query('include') === 'albums') {
+            $query->with('albums');
+        }
+
+        $collection = $query->findOrFail($id);
 
         return new CollectionResource($collection);
     }
@@ -97,22 +109,34 @@ class CollectionController extends Controller
     public function albums($id, PaginatedRequest $request)
     {
         $collection = Collection::findOrFail($id);
-        $albums = $collection->albums()
-            ->with(['images', 'collection'])
+        $query = $collection->albums()
             ->withCount('images')
-            ->orderBy(
-                $request->getSortColumn(),
-                $request->getSortOrder()
-            )
-            ->paginate($request->getPerPage());
+            ->with('collection');
+
+        // Only load images if explicitly requested via ?include=images
+        if ($request->query('include') === 'images') {
+            $query->with('images');
+        }
+
+        $albums = $query->orderBy(
+            $request->getSortColumn(),
+            $request->getSortOrder()
+        )->paginate($request->getPerPage());
 
         return AlbumResource::collection($albums);
     }
 
-    public function albumInCollection($collectionId, $albumId)
+    public function albumInCollection(Request $request, $collectionId, $albumId)
     {
         $collection = Collection::findOrFail($collectionId);
-        $album = $collection->albums()->with('images')->findOrFail($albumId);
+        $query = $collection->albums()->withCount('images');
+
+        // Only load images if explicitly requested via ?include=images
+        if ($request->query('include') === 'images') {
+            $query->with('images');
+        }
+
+        $album = $query->findOrFail($albumId);
 
         return new AlbumResource($album);
     }
